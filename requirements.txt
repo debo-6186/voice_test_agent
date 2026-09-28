@@ -1,0 +1,9 @@
+numpy>=1.26
+scipy>=1.11
+PyYAML>=6.0
+# Phase 2+
+# pjsua2            (build from pjproject 2.16+ with the custom config_site.h)
+# faster-whisper    referee ASR, self-hosted
+# jiwer             WER computation
+# whisper-normalizer  text normalisation incl. Indic
+# psignifit         psychometric threshold fitting

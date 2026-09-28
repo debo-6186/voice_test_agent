@@ -1,0 +1,58 @@
+# PolyCall Bench - degradation matrix, reference ladder v1
+# Every condition is fully specified here. "cafe noise" is not a condition;
+# "cafe babble, 16 talkers, seed 4471, mixed to 10 dB SNR against a -26 dBov
+# active speech level, through G.711 mu-law at 8 kHz" is a condition.
+version: 1
+matrix_id: reference_v1
+
+defaults:
+  speech_level_dbov: -26.0        # ITU-T P.56 active speech level
+  level_standard: ITU-T P.56
+  pad_head_s: 0.5                 # silence before speech...
+  pad_tail_s: 1.5                 # ...and after. Noise runs through both:
+                                  # endpointing is measured in the silence.
+  codec: g711u                    # G.711 mu-law - the PSTN default leg
+  codec_sr: 8000
+  frame_ms: 20
+  seed_base: 4471
+
+blocks:
+
+  ctl:
+    label: Controls
+    conditions:
+      - {id: ctl_clean,      noise: null,  snr_db: null, codec: g711u, desc: "Baseline. Every score is a delta from this."}
+      - {id: ctl_noise_only, noise: cafe,  snr_db: null, codec: g711u, speech: false, duration_s: 30,
+         desc: "30 s of ambience, zero speech. Counts turns the agent invents. Nobody runs this test."}
+
+  A:
+    label: Reference ladder - cafe babble
+    noise: cafe
+    noise_params: {talkers: 16}
+    conditions:
+      - {id: A_cafe_snr30, snr_db: 30}
+      - {id: A_cafe_snr20, snr_db: 20}
+      - {id: A_cafe_snr15, snr_db: 15}
+      - {id: A_cafe_snr10, snr_db: 10}
+      - {id: A_cafe_snr05, snr_db: 5}
+      - {id: A_cafe_snr00, snr_db: 0}
+
+  B:
+    label: Ambience sweep at fixed 10 dB SNR
+    snr_db: 10
+    conditions:
+      - {id: B_street_snr10, noise: street, desc: "Traffic bed plus passing-vehicle swells."}
+      - {id: B_car_snr10,    noise: car,    desc: "Engine harmonics, tyre roar, cabin wind."}
+      - {id: B_office_snr10, noise: office, desc: "HVAC, keyboard, distant colleagues."}
+      - {id: B_tv_snr10,     noise: tv,     desc: "Band-limited speech plus music - a classic false trigger."}
+
+  C:
+    label: Channel and network
+    noise: cafe
+    snr_db: 20
+    conditions:
+      - {id: C_loss5,    network: {type: packet_loss, loss_pct: 5.0, burst_len: 3.0, plc: hold},
+         desc: "Gilbert-Elliott burst loss. Clumped, like a real network."}
+      - {id: C_jitter30, network: {type: jitter, jitter_ms: 30, buffer_ms: 60},
+         desc: "Late frames past the playout buffer are discarded."}
+      - {id: C_opus8k,   codec: opus_8k, desc: "Bitrate-starved Opus."}
