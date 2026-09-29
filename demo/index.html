@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PolyCall Bench — Listening Demo</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <h1>Hear your voice go down the café ladder</h1>
+      <p class="tagline">
+        Drop in a clip or record yourself, and hear it degrade through six steps
+        of café noise — the same ladder <a href="../PLAN.md">PolyCall Bench</a>
+        uses to test voice AI agents — with a speech-recognition transcript
+        under every rung.
+      </p>
+      <p class="privacy-note">
+        Nothing is uploaded. All processing — the noise mixing, the phone-codec
+        simulation, and the transcription — runs entirely in your browser.
+      </p>
+    </header>
+
+    <section class="input-panel" id="input-panel">
+      <div class="dropzone" id="dropzone" tabindex="0">
+        <p>Drop a WAV/MP3 file here, or click to choose one</p>
+        <input type="file" id="file-input" accept="audio/*" hidden />
+      </div>
+      <div class="or-divider">or</div>
+      <button id="record-btn" class="record-btn" type="button">
+        <span id="record-label">Record from your mic</span>
+      </button>
+      <p id="input-status" class="input-status" role="status"></p>
+    </section>
+
+    <section class="ladder-panel" id="ladder-panel" hidden>
+      <p id="verdict" class="verdict" hidden></p>
+      <div id="ladder" class="ladder"></div>
+      <button id="reset-btn" class="reset-btn" type="button">Try another clip</button>
+    </section>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
