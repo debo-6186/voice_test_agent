@@ -35,6 +35,12 @@ RUN cd pjsip-apps/src/swig/python && make && make install
 FROM python:3.11-slim
 COPY --from=pjsip /usr/local/lib /usr/local/lib
 COPY --from=pjsip /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# `pjsip-apps/src/swig/python`'s `make install` lands under the builder's
+# user-site (/root/.local/...), inside a legacy .egg directory - not under
+# /usr/local, so the copy above misses it. Flatten that egg's contents
+# (pjsua2.py, _pjsua2*.so) straight into site-packages so the module is
+# importable without needing .egg/.pth machinery in the final image.
+COPY --from=pjsip /root/.local/lib/python3.11/site-packages/pjsua2-2.16-py3.11-linux-*.egg/ /usr/local/lib/python3.11/site-packages/
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg espeak-ng libopus0 libgsm1 libspeex1 libssl3 \
     && rm -rf /var/lib/apt/lists/* && ldconfig
