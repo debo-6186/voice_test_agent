@@ -146,7 +146,9 @@ def build(utt_path: str, cond_path: str, out_dir: str,
         if limit_langs and lang not in limit_langs:
             continue
         lmeta = langs[lang]
-        voice = lmeta["tts_voice"]
+        # tts_voice (espeak code) and elevenlabs_voice_id are different ID
+        # namespaces - never pass one backend's ID to the other.
+        voice = lmeta["tts_voice"] if tts == "espeak" else lmeta["elevenlabs_voice_id"]
 
         # ---- 1. clean speech ------------------------------------------
         cpath = os.path.join(clean_dir, lang, f"{u['id']}.wav")

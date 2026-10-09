@@ -4,29 +4,40 @@
 # survive a noisy referee ASR where a full transcript does not.
 version: 1
 
+# tts_voice is an espeak-ng voice code (the tts=espeak backend).
+# elevenlabs_voice_id is a *different* namespace - an opaque ElevenLabs voice
+# ID (the tts=elevenlabs backend) - never the same string as tts_voice.
+# Placeholders below (REPLACE_WITH_ELEVENLABS_*) must be filled with real
+# voice IDs from the project's ElevenLabs account before a production corpus
+# build; tts_elevenlabs() will fail loudly on an unresolved placeholder.
 languages:
   en-US:
     name: English (United States)
     tts_voice: en-us
+    elevenlabs_voice_id: GogJbMCDT0Viv4cU3N4s   # user-specified English voice
     referee_hint: whisper-large-v3
   en-SG:
     name: English (Singapore)
-    tts_voice: en-gb            # placeholder; ElevenLabs en-SG voice in production
+    tts_voice: en-gb
+    elevenlabs_voice_id: aSXZu6bgEOS8MXVRzjPi   # user-specified Singaporean-accent voice
     referee_hint: whisper-large-v3
     notes: Singlish discourse particles and local toponyms are the hard part.
   hi-IN:
     name: Hindi
     tts_voice: hi
+    elevenlabs_voice_id: LMAakzUPP3447PeBfaAP   # user-specified Hindi voice
     referee_hint: tbd-phase-0   # Whisper ~21% WER; must benchmark alternatives
     notes: Devanagari; numerals spoken as words must normalise to digits.
   es-ES:
     name: Spanish (Spain)
     tts_voice: es
+    elevenlabs_voice_id: NDcVpQJv7Naa7ZKrqtEk   # user-specified Spanish voice
     referee_hint: whisper-large-v3
     notes: Control language - lowest referee error of the set.
   id-ID:
     name: Bahasa Indonesia
     tts_voice: id
+    elevenlabs_voice_id: qAJVXEQ6QgjOQ25KuoU8   # user-specified Malay/Bahasa voice
     referee_hint: whisper-large-v3
 
 utterances:
