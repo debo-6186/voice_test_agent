@@ -1,9 +1,10 @@
 numpy>=1.26
 scipy>=1.11
 PyYAML>=6.0
+faster-whisper>=1.0   # Phase 5: mock agent's in-loop ASR (whisper-tiny/base, int8 CPU dev fallback)
+laya>=0.4             # Phase 6: caller intent classification, tier 2 (convaiinnovations/laya)
 # Phase 2+
 # pjsua2            (build from pjproject 2.16+ with the custom config_site.h)
-# faster-whisper    referee ASR, self-hosted
 # jiwer             WER computation
 # whisper-normalizer  text normalisation incl. Indic
 # psignifit         psychometric threshold fitting
