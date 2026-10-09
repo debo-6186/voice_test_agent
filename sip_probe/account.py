@@ -19,12 +19,21 @@ def restrict_to_pcmu(ep: pj.Endpoint) -> None:
         ep.codecSetPriority(codec.codecId, priority)
 
 
-def make_endpoint(port: int = 0) -> pj.Endpoint:
+def make_endpoint(port: int = 0, stun_server: str | None = None) -> pj.Endpoint:
     """Create and start a PJSUA2 endpoint with no sound device.
 
     `port` is the local UDP SIP port; 0 lets the OS pick a free one (fine
-    for an outbound probe), or pass a fixed port for something that needs to
-    be dialled into (e.g. the local echo test UAS).
+    for a same-host test like the local echo UAS), or pass a fixed port for
+    something that needs to be dialled into from outside, or reached through
+    a NAT/Docker port publish.
+
+    `stun_server` (host:port) makes PJSIP discover and advertise our real
+    public IP/port in the SDP instead of a local interface address - without
+    it, a container's internal bridge IP (e.g. 172.17.0.3) ends up in the
+    SDP `c=` line, which is unreachable from a real vendor's media server:
+    SIP signaling still completes (responses use `rport`, which is
+    self-correcting), but RTP has no such correction, so audio never
+    arrives and a call can show CONFIRMED while recording pure silence.
     """
     ep = pj.Endpoint()
     ep.libCreate()
@@ -32,6 +41,10 @@ def make_endpoint(port: int = 0) -> pj.Endpoint:
     ep_cfg = pj.EpConfig()
     ep_cfg.uaConfig.maxCalls = 8
     ep_cfg.medConfig.noVad = True
+    if stun_server:
+        ep_cfg.uaConfig.stunServer = pj.StringVector()
+        ep_cfg.uaConfig.stunServer.append(stun_server)
+        ep_cfg.uaConfig.stunIgnoreFailure = False
     ep.libInit(ep_cfg)
 
     transport_cfg = pj.TransportConfig()

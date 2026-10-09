@@ -38,17 +38,23 @@ def dial_and_probe(
     out_dir: str,
     timeout_s: float = 30.0,
     record_tail_s: float = 3.0,
+    local_port: int = 0,
+    stun_server: str | None = None,
 ) -> dict:
     """Returns a self-describing result dict, and also writes it as
     manifest.json alongside the recording - per project convention, a
     result row should never depend on config the reader may not have.
+
+    `local_port`/`stun_server`: needed for anything outside the local host -
+    see account.make_endpoint()'s docstring for why a NAT'd/containerized
+    probe records silence without them.
     """
     os.makedirs(out_dir, exist_ok=True)
     wav_out = os.path.join(out_dir, "received.wav")
     manifest_path = os.path.join(out_dir, "manifest.json")
     play_duration_s = _wav_duration_s(wav_in)
 
-    ep = make_endpoint()
+    ep = make_endpoint(port=local_port, stun_server=stun_server)
     ep.libRegisterThread("probe-main")
     acc = make_account(ep)
 
