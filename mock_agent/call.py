@@ -123,6 +123,106 @@ def listen_for_turn(ep: pj.Endpoint, call: MockAgentCall, scratch_wav: str,
     return scratch_wav, heard_speech
 
 
+def speak_and_listen(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, scratch_wav: str,
+                     max_wait_s: float = 20.0, max_listen_s: float = 15.0, poll_ms: int = 100,
+                     silence_floor: float = 0.01, speech_floor: float = 0.02,
+                     silence_s: float = 0.7) -> tuple[str, bool]:
+    """Plays wav_path while SIMULTANEOUSLY listening on the recorder, so a
+    far-end barge-in is captured from its actual start instead of being
+    clipped. Returns (scratch_wav, heard_speech) - same contract as
+    listen_for_turn().
+
+    Why this exists: speak() then listen_for_turn() run sequentially, so the
+    recorder only activates after our own playback fully finishes. Verified
+    live against a real vendor: its response started while we were still
+    talking, and the previous design simply wasn't listening yet - word-level
+    ASR timestamps on the resulting recording started at 0.00s on "date",
+    confirming "What" was spoken before our recorder ever existed, not
+    mis-transcribed. No amount of ASR quality can fix audio that was never
+    captured.
+
+    The two directions don't cross-contaminate: `call.audio_media()` carries
+    the decoded INCOMING RTP (the far end) and `player.startTransmit(...)`
+    carries OUTGOING audio - the same reason a real phone call lets you hear
+    the other side while you talk without hearing your own echo. Recording
+    from the former while transmitting to the latter are independent paths
+    on the same conference port.
+    """
+    if call.last_state == "DISCONNECTED":
+        return scratch_wav, False
+    if os.path.exists(scratch_wav):
+        os.remove(scratch_wav)
+
+    # Start listening before playing, not after - so there is no window,
+    # however small, where neither is active.
+    recorder = pj.AudioMediaRecorder()
+    recorder.createRecorder(scratch_wav)
+    try:
+        call.audio_media().startTransmit(recorder)
+    except pj.Error:
+        call.recorder = None
+        del recorder
+        return scratch_wav, False
+    call.recorder = recorder
+
+    player = pj.AudioMediaPlayer()
+    player.createPlayer(wav_path, pj.PJMEDIA_FILE_NO_LOOP)
+    call.player = player
+    try:
+        player.startTransmit(call.audio_media())
+    except pj.Error:
+        call.player = None
+        del player
+        call.recorder = None
+        del recorder
+        return scratch_wav, False
+
+    import wave
+    with wave.open(wav_path, "rb") as w:
+        play_duration_s = w.getnframes() / float(w.getframerate())
+
+    last_offset = WAV_HEADER_BYTES
+    heard_speech = False
+    silence_start: Optional[float] = None
+    listen_deadline: Optional[float] = None
+    start = time.time()
+    while True:
+        if call.last_state == "DISCONNECTED":
+            break
+        now = time.time()
+        playback_done = (now - start) >= min(play_duration_s + 0.15, max_wait_s)
+        if playback_done and listen_deadline is None:
+            listen_deadline = now + max_listen_s
+
+        ep.libHandleEvents(poll_ms)
+        rms, last_offset = _read_new_rms(scratch_wav, last_offset)
+        now = time.time()
+        if rms >= speech_floor:
+            heard_speech = True
+            silence_start = None
+        elif rms < silence_floor:
+            if silence_start is None:
+                silence_start = now
+        else:
+            silence_start = None   # ambiguous band - don't count toward silence
+
+        if playback_done:
+            # If the far end already spoke and went quiet WHILE we were
+            # still playing, silence_start is already old enough here, so
+            # this fires the instant our own playback ends - no extra
+            # 700ms tacked on for something that already happened.
+            if heard_speech and silence_start is not None and (now - silence_start) >= silence_s:
+                break
+            if listen_deadline is not None and now >= listen_deadline:
+                break
+
+    call.player = None
+    del player
+    call.recorder = None
+    del recorder
+    return scratch_wav, heard_speech
+
+
 def speak(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, max_wait_s: float = 20.0) -> None:
     """Plays wav_path to the caller and blocks until playback finishes.
     No-ops (rather than crashing) if the call has already disconnected -
@@ -143,8 +243,16 @@ def speak(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, max_wait_s: float
     with wave.open(wav_path, "rb") as w:
         duration_s = w.getnframes() / float(w.getframerate())
 
+    # +0.15s, not +0.5s: this margin exists only so PJSIP finishes flushing
+    # this file before the player object gets deleted below, not to
+    # deliberately delay anything. Verified live and reproduced locally:
+    # clipping even 0.8s off the START of a real agent utterance produces
+    # exactly the kind of garbled, truncated transcript that forces a tier-3
+    # escalation and can trigger a real vendor re-prompt. Every extra
+    # half-second here is pure blind time before the next listen_for_turn()
+    # even starts, directly adding to that clipping risk.
     start = time.time()
-    while time.time() - start < min(duration_s + 0.5, max_wait_s):
+    while time.time() - start < min(duration_s + 0.15, max_wait_s):
         ep.libHandleEvents(100)
         if call.last_state == "DISCONNECTED":
             break

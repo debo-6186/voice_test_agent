@@ -1,11 +1,18 @@
-"""In-loop ASR for the mock agent - whisper-tiny/base, int8 CPU.
+"""In-loop ASR for the mock agent - whisper-base, int8 CPU.
 
 docs/stack.md: in-loop ASR is small/fast/accuracy-tolerant, production target
-is "whisper-small/base, GPU sidecar" with "whisper-tiny int8 in-loop" named as
-the CPU dev fallback - not a second implementation. This machine has no GPU
-sidecar, so that documented fallback is what runs here. Loaded once, lazily,
-at module scope - never per-call (CLAUDE.md: "one GPU sidecar, not a model per
-worker", applied at dev scale to mean one process-wide model, not one per call).
+is "whisper-small/base, GPU sidecar". This machine has no GPU sidecar, so
+"base" (not "tiny") is the CPU default here - verified directly, not assumed:
+on a clipped/truncated utterance (recorder starting after the agent had
+already begun talking, a real live-call failure mode), "tiny" hallucinates
+plausible-but-wrong words ("October fees", "The point is that...") rather
+than honestly transcribing only what's present, which misleads the intent
+classifier more than an honestly incomplete transcript would. "base" never
+hallucinated on the same clipped test files, at an acceptable latency cost
+(~0.5-0.6s vs ~0.3s, both well under a second; warm load ~0.7s, same as tiny).
+Loaded once, lazily, at module scope - never per-call (CLAUDE.md: "one GPU
+sidecar, not a model per worker", applied at dev scale to mean one
+process-wide model, not one per call).
 """
 from __future__ import annotations
 
@@ -16,7 +23,7 @@ _model = None
 _model_name = None
 
 
-def _get_model(model_name: str = "tiny"):
+def _get_model(model_name: str = "base"):
     global _model, _model_name
     if _model is None or _model_name != model_name:
         from faster_whisper import WhisperModel
@@ -40,7 +47,7 @@ def whisper_lang(bcp47: str) -> str:
     return bcp47.split("-")[0].lower()
 
 
-def transcribe(wav_path: str, language: str | None = None, model_name: str = "tiny") -> Transcript:
+def transcribe(wav_path: str, language: str | None = None, model_name: str = "base") -> Transcript:
     model = _get_model(model_name)
     segments, _info = model.transcribe(wav_path, language=language)
     segs = list(segments)

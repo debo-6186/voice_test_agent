@@ -28,7 +28,7 @@ def main() -> None:
     p.add_argument("--repair-threshold", type=float, default=0.0)
     p.add_argument("--silent-error-rate", type=float, default=0.0)
     p.add_argument("--max-turn-listen-s", type=float, default=15.0)
-    p.add_argument("--asr-model", default="tiny")
+    p.add_argument("--asr-model", default="base")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-calls", type=int, default=None)
     p.add_argument("--log", default=None, help="Append per-call turn logs as JSONL here")

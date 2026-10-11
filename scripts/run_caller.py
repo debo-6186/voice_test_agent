@@ -56,10 +56,16 @@ def main() -> None:
     p.add_argument("--lang", default="en-US")
     p.add_argument("--uri", required=True)
     p.add_argument("--local-port", type=int, default=5070)
+    p.add_argument("--stun", default=None,
+                   help="host:port - needed for anything off-localhost, see "
+                        "sip_probe.account.make_endpoint's docstring")
     p.add_argument("--tts", default="espeak", choices=["espeak", "elevenlabs"])
     p.add_argument("--tier3-threshold", type=float, default=0.75)
     p.add_argument("--max-listen-s", type=float, default=15.0)
-    p.add_argument("--asr-model", default="tiny")
+    p.add_argument("--silence-s", type=float, default=0.7,
+                   help="end-of-turn silence threshold - lower cuts dead air "
+                        "but risks truncating the agent mid-sentence")
+    p.add_argument("--asr-model", default="base")
     p.add_argument("--log", default=None)
     args = p.parse_args()
 
@@ -76,7 +82,7 @@ def main() -> None:
     ucfg = yaml.safe_load(open(os.path.join(REPO_ROOT, "config", "utterances.yaml"), encoding="utf-8"))
     lang_meta = ucfg["languages"][args.lang]
 
-    ep = make_endpoint(port=args.local_port)
+    ep = make_endpoint(port=args.local_port, stun_server=args.stun)
     ep.libRegisterThread("caller-main")
     acc = make_account(ep)
     call = CallerCall(acc, pj.PJSUA_INVALID_ID)
@@ -94,7 +100,7 @@ def main() -> None:
         turn_log = run_call(
             ep, call, turns_def, args.lang, lang_meta, args.tts, condition,
             scratch_dir, max_turn_listen_s=args.max_listen_s, asr_model=args.asr_model,
-            tier3_threshold=args.tier3_threshold,
+            tier3_threshold=args.tier3_threshold, silence_s=args.silence_s,
         )
 
         start = time.time()

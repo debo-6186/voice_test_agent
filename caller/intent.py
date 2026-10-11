@@ -14,13 +14,23 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-INTENTS = ["ask_name", "ask_phone", "ask_date", "confirm", "repair", "closing"]
+INTENTS = ["ask_name", "ask_phone", "ask_date", "confirm", "repair", "closing", "check_in"]
 
 # Checked in this order - more specific patterns (ask_date's "what date")
 # before vaguer ones (confirm's generic phrasing) so a compound sentence
 # like "Got it, thank you. And what date would you like?" resolves to the
 # question being asked, not the acknowledgement preceding it.
+#
+# check_in exists only because of what tier 3's own latency causes: while
+# we're generating an adaptive reply (ASR -> Laya -> Gemini -> TTS ->
+# degrade, several real seconds), we aren't listening at all, so a vendor
+# agent that re-prompts "are you still there?" during that window gets
+# answered as if it had asked the ORIGINAL question - verified live on a
+# real ElevenLabs call, which re-prompted twice before our reply arrived.
+# Catching this at tier 1 means it costs nothing and never touches Gemini.
 _TIER1_PATTERNS: dict[str, list[str]] = {
+    "check_in": [r"are you (still )?there", r"\bstill on the line\b",
+                r"\bcan you hear me\b", r"^\s*hello\??\s*$"],
     "repair": [r"didn.?t catch", r"say that again", r"\brepeat\b", r"\bclarify\b"],
     "ask_date": [r"\bwhat date\b", r"\bdate would you like\b", r"\bwhen.*appointment\b"],
     "ask_phone": [r"\bphone number\b", r"\bhandphone\b", r"\bcontact number\b", r"\bcallback number\b"],

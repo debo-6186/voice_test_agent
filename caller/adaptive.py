@@ -24,7 +24,7 @@ import urllib.request
 
 import numpy as np
 
-from vqlab.audio import Audio, db_to_lin, load, rms_dbfs, write_wav
+from vqlab.audio import Audio, db_to_lin, rms_dbfs, write_wav
 from vqlab.fx import codec as K
 from vqlab.fx import noise as NZ
 
@@ -42,7 +42,7 @@ GENERIC_FALLBACK: dict[str, str] = {
 
 def generate_reply_text(agent_utterance: str, lang: str, remaining_fields: list[str],
                         best_guess_intent: str | None = None, best_guess_confidence: float = 0.0,
-                        timeout_s: float = 10.0) -> tuple[str, str]:
+                        timeout_s: float = 6.0) -> tuple[str, str]:
     """Returns (reply_text, divergence_reason). "no_llm_configured" when
     GEMINI_API_KEY is unset - the call must keep going on the generic
     fallback, never fail (CLAUDE.md: never a hard fail).
@@ -83,16 +83,41 @@ def generate_reply_text(agent_utterance: str, lang: str, remaining_fields: list[
         if not text:
             raise ValueError("empty Gemini response")
         return text, "llm_generated"
-    except (urllib.error.URLError, KeyError, IndexError, ValueError) as e:
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError,
+           KeyError, IndexError, ValueError) as e:
+        # A plain read-timeout (slow/overloaded Gemini) raises bare
+        # TimeoutError/OSError here, not urllib.error.URLError - verified
+        # live: this escaped uncaught mid-call, skipped the caller's
+        # explicit PJSIP cleanup, and the process segfaulted (exit 139)
+        # instead of the call just continuing on the generic fallback like
+        # every other failure mode here already does.
         return GENERIC_FALLBACK.get(lang, GENERIC_FALLBACK["en-US"]), f"llm_error:{type(e).__name__}"
+
+
+# ElevenLabs' default model (eleven_multilingual_v2) measured at 3.19s for a
+# short adaptive reply - real enough to make a live vendor re-prompt mid-
+# generation. eleven_flash_v2_5, verified live, does the same text in 0.39s -
+# barely slower than espeak's 0.07s, but as the real configured voice rather
+# than a robotic fallback. Previously this path forced espeak unconditionally
+# for speed; verified live that trade cost real clarity - a vendor's own ASR
+# mis-transcribed an espeak reply ("Wait, I haven't given you the date yet."
+# heard back as "Wade. I haven't given you the name yet."), which can cause
+# more confusion/turns than the latency it saved. Flash gets both.
+ADAPTIVE_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 
 
 def synth_and_degrade(text: str, lang: str, lang_meta: dict, tts: str,
                       condition: dict, out_path: str, scratch_dir: str,
                       work_sr: int = 16000) -> str:
-    from mock_agent.call import synth_response  # local: needs pjsua2-free use above
-    raw_path = synth_response(text, lang, tts, lang_meta, scratch_dir)
-    a = load(raw_path).resample(work_sr)
+    raw_path = os.path.join(scratch_dir, "_adaptive_raw.wav")
+    if tts == "espeak":
+        from vqlab.corpus import tts_espeak
+        a = tts_espeak(text, lang_meta["tts_voice"], raw_path)
+    else:
+        from vqlab.corpus import tts_elevenlabs
+        a = tts_elevenlabs(text, lang_meta["elevenlabs_voice_id"], raw_path,
+                           model=ADAPTIVE_ELEVENLABS_MODEL)
+    a = a.resample(work_sr)
 
     nz_name = condition.get("noise")
     snr = condition.get("snr_db")
