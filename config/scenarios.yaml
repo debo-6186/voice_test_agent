@@ -1,0 +1,202 @@
+# PolyCall Bench - multi-turn scenario definitions (PLAN.md Phase 4 / S1-S3).
+#
+# Entity chains mirror tau-Elicitation's structure (PLAN.md S6) so the
+# compounding-error curve is directly comparable: S1 one field, S2 two linked
+# fields, S3 three linked fields. S4 (staged validation) is deferred - it
+# needs runtime branching that belongs with the Phase 6 caller state machine,
+# not a static corpus.
+#
+# Turn text is written as a natural conversational line, not a terse
+# form-field readout - a clipped "My name is Rachel Hoffman." is only ~1.4s
+# of real speech, which barely gives a live agent (or its own VAD/turn
+# detection) room to register the turn. Measured at ~2.9 words/sec on the
+# project's ElevenLabs voices, so every turn below targets 18+ words to
+# clear 5s of real speech with margin, not just by padding silence.
+#
+# gap_before_s is the nominal assumed offset from the end of the PREVIOUS
+# caller turn (standing in for the agent's expected question/response) - it
+# only exists to lay turns onto one timeline so the noise bed can be sliced
+# deterministically. It is not a claim about real-time timing; the Phase 6
+# state machine decides when to actually play each turn live.
+#
+# Entity values for name/phone reuse config/utterances.yaml's existing
+# ground truth per language so the project has one consistent fact per
+# entity, not two. turn_date is new content, following the same "--MM-DD"
+# convention as the existing es-ES date entity.
+version: 1
+
+scenarios:
+  S1_phone_only:
+    label: "Single field - phone number only"
+    turns:
+      - id: turn_phone
+        field: phone
+        gap_before_s: 4.0
+        text:
+          en-US: "Hi there, yes, I'd like to leave my phone number, it's nine one four, two three three, zero eight seven seven, thank you."
+          en-SG: "Hi there, yes, I want to give you my handphone number, it's nine one two three, four five six seven, thank you lah."
+          hi-IN: "नमस्ते, हां, मैं अपना नंबर देना चाहती हूँ, वह है नौ आठ सात छह पाँच चार तीन दो एक शून्य, धन्यवाद।"
+          es-ES: "Hola, sí, quiero dejarle mi número de teléfono, es el seis uno cuatro, dos tres tres, cero ocho siete, muchas gracias."
+          id-ID: "Halo, iya, saya mau kasih nomor telepon saya, nomornya nol delapan satu dua, tiga empat lima enam, tujuh delapan sembilan, terima kasih."
+        text_norm:
+          en-US: "hi there yes i'd like to leave my phone number it's 9142330877 thank you"
+          en-SG: "hi there yes i want to give you my handphone number it's 91234567 thank you lah"
+          hi-IN: "नमस्ते हां मैं अपना नंबर देना चाहती हूँ वह है 9876543210 धन्यवाद"
+          es-ES: "hola si quiero dejarle mi numero de telefono es el 614233087 muchas gracias"
+          id-ID: "halo iya saya mau kasih nomor telepon saya nomornya 08123456789 terima kasih"
+        entities:
+          en-US: [{type: phone, value: "9142330877", digits: 10}]
+          en-SG: [{type: phone, value: "91234567", digits: 8, format: sg_mobile}]
+          hi-IN: [{type: phone, value: "9876543210", digits: 10, format: in_mobile}]
+          es-ES: [{type: phone, value: "614233087", digits: 9, format: es_mobile}]
+          id-ID: [{type: phone, value: "08123456789", digits: 11, format: id_mobile}]
+
+  S2_name_phone:
+    label: "Linked two-field - name then phone"
+    turns:
+      - id: turn_name
+        field: person_name
+        gap_before_s: 4.0
+        text:
+          en-US: "Hi there, yes, my name is Rachel Hoffman, and I'm calling today about the appointment that was scheduled for earlier this week."
+          en-SG: "Hi there, yes, my name is Tan Wei Ming, and I'm calling today about the appointment that was scheduled for earlier this week lah."
+          hi-IN: "नमस्ते, हां, मेरा नाम प्रिया शर्मा है, और मैं अपनी उस अपॉइंटमेंट के बारे में कॉल कर रही हूँ जो इस हफ्ते तय हुई थी।"
+          es-ES: "Hola, sí, me llamo Carlos Jiménez, y estoy llamando por la cita que se programó a principios de esta semana."
+          id-ID: "Halo, iya, nama saya Budi Santoso, saya telepon soal jadwal appointment saya yang sudah dijadwalkan dari minggu ini."
+        text_norm:
+          en-US: "hi there yes my name is rachel hoffman and i'm calling today about the appointment that was scheduled for earlier this week"
+          en-SG: "hi there yes my name is tan wei ming and i'm calling today about the appointment that was scheduled for earlier this week lah"
+          hi-IN: "नमस्ते हां मेरा नाम प्रिया शर्मा है और मैं अपनी उस अपॉइंटमेंट के बारे में कॉल कर रही हूँ जो इस हफ्ते तय हुई थी"
+          es-ES: "hola si me llamo carlos jimenez y estoy llamando por la cita que se programo a principios de esta semana"
+          id-ID: "halo iya nama saya budi santoso saya telepon soal jadwal appointment saya yang sudah dijadwalkan dari minggu ini"
+        entities:
+          en-US: [{type: person_name, value: "Rachel Hoffman"}]
+          en-SG: [{type: person_name, value: "Tan Wei Ming"}]
+          hi-IN: [{type: person_name, value: "प्रिया शर्मा", romanised: "Priya Sharma"}]
+          es-ES: [{type: person_name, value: "Carlos Jiménez"}]
+          id-ID: [{type: person_name, value: "Budi Santoso"}]
+      - id: turn_phone
+        field: phone
+        gap_before_s: 7.0
+        text:
+          en-US: "And my callback number is nine one four, two three three, zero eight seven seven, in case we get cut off halfway through the call."
+          en-SG: "And my handphone number is nine one two three, four five six seven, just in case we get cut off halfway through the call."
+          hi-IN: "और मेरा नंबर है नौ आठ सात छह पाँच चार तीन दो एक शून्य, ताकि अगर बीच में कॉल कट जाए तो आप वापस कॉल कर सकें।"
+          es-ES: "Y mi número es seis uno cuatro, dos tres tres, cero ocho siete, por si se corta la llamada a mitad de camino."
+          id-ID: "Dan nomor saya nol delapan satu dua, tiga empat lima enam, tujuh delapan sembilan, kalau-kalau teleponnya putus di tengah-tengah pembicaraan."
+        text_norm:
+          en-US: "and my callback number is 9142330877 in case we get cut off halfway through the call"
+          en-SG: "and my handphone number is 91234567 just in case we get cut off halfway through the call"
+          hi-IN: "और मेरा नंबर है 9876543210 ताकि अगर बीच में कॉल कट जाए तो आप वापस कॉल कर सकें"
+          es-ES: "y mi numero es 614233087 por si se corta la llamada a mitad de camino"
+          id-ID: "dan nomor saya 08123456789 kalau-kalau teleponnya putus di tengah-tengah pembicaraan"
+        entities:
+          en-US: [{type: phone, value: "9142330877", digits: 10}]
+          en-SG: [{type: phone, value: "91234567", digits: 8, format: sg_mobile}]
+          hi-IN: [{type: phone, value: "9876543210", digits: 10, format: in_mobile}]
+          es-ES: [{type: phone, value: "614233087", digits: 9, format: es_mobile}]
+          id-ID: [{type: phone, value: "08123456789", digits: 11, format: id_mobile}]
+
+  S3_name_phone_date:
+    label: "Linked three-field - name, phone, date (the compounding case)"
+    turns:
+      - id: turn_name
+        field: person_name
+        gap_before_s: 4.0
+        text:
+          en-US: "Hi there, yes, my name is Rachel Hoffman, and I'm calling today about the appointment that was scheduled for earlier this week."
+          en-SG: "Hi there, yes, my name is Tan Wei Ming, and I'm calling today about the appointment that was scheduled for earlier this week lah."
+          hi-IN: "नमस्ते, हां, मेरा नाम प्रिया शर्मा है, और मैं अपनी उस अपॉइंटमेंट के बारे में कॉल कर रही हूँ जो इस हफ्ते तय हुई थी।"
+          es-ES: "Hola, sí, me llamo Carlos Jiménez, y estoy llamando por la cita que se programó a principios de esta semana."
+          id-ID: "Halo, iya, nama saya Budi Santoso, saya telepon soal jadwal appointment saya yang sudah dijadwalkan dari minggu ini."
+        text_norm:
+          en-US: "hi there yes my name is rachel hoffman and i'm calling today about the appointment that was scheduled for earlier this week"
+          en-SG: "hi there yes my name is tan wei ming and i'm calling today about the appointment that was scheduled for earlier this week lah"
+          hi-IN: "नमस्ते हां मेरा नाम प्रिया शर्मा है और मैं अपनी उस अपॉइंटमेंट के बारे में कॉल कर रही हूँ जो इस हफ्ते तय हुई थी"
+          es-ES: "hola si me llamo carlos jimenez y estoy llamando por la cita que se programo a principios de esta semana"
+          id-ID: "halo iya nama saya budi santoso saya telepon soal jadwal appointment saya yang sudah dijadwalkan dari minggu ini"
+        entities:
+          en-US: [{type: person_name, value: "Rachel Hoffman"}]
+          en-SG: [{type: person_name, value: "Tan Wei Ming"}]
+          hi-IN: [{type: person_name, value: "प्रिया शर्मा", romanised: "Priya Sharma"}]
+          es-ES: [{type: person_name, value: "Carlos Jiménez"}]
+          id-ID: [{type: person_name, value: "Budi Santoso"}]
+      - id: turn_phone
+        field: phone
+        gap_before_s: 7.0
+        text:
+          en-US: "And my callback number is nine one four, two three three, zero eight seven seven, in case we get cut off halfway through the call."
+          en-SG: "And my handphone number is nine one two three, four five six seven, just in case we get cut off halfway through the call."
+          hi-IN: "और मेरा नंबर है नौ आठ सात छह पाँच चार तीन दो एक शून्य, ताकि अगर बीच में कॉल कट जाए तो आप वापस कॉल कर सकें।"
+          es-ES: "Y mi número es seis uno cuatro, dos tres tres, cero ocho siete, por si se corta la llamada a mitad de camino."
+          id-ID: "Dan nomor saya nol delapan satu dua, tiga empat lima enam, tujuh delapan sembilan, kalau-kalau teleponnya putus di tengah-tengah pembicaraan."
+        text_norm:
+          en-US: "and my callback number is 9142330877 in case we get cut off halfway through the call"
+          en-SG: "and my handphone number is 91234567 just in case we get cut off halfway through the call"
+          hi-IN: "और मेरा नंबर है 9876543210 ताकि अगर बीच में कॉल कट जाए तो आप वापस कॉल कर सकें"
+          es-ES: "y mi numero es 614233087 por si se corta la llamada a mitad de camino"
+          id-ID: "dan nomor saya 08123456789 kalau-kalau teleponnya putus di tengah-tengah pembicaraan"
+        entities:
+          en-US: [{type: phone, value: "9142330877", digits: 10}]
+          en-SG: [{type: phone, value: "91234567", digits: 8, format: sg_mobile}]
+          hi-IN: [{type: phone, value: "9876543210", digits: 10, format: in_mobile}]
+          es-ES: [{type: phone, value: "614233087", digits: 9, format: es_mobile}]
+          id-ID: [{type: phone, value: "08123456789", digits: 11, format: id_mobile}]
+      - id: turn_date
+        field: date
+        gap_before_s: 8.0
+        text:
+          en-US: "I would like to book the appointment for the fifteenth of October please, if that date still has an opening available."
+          en-SG: "I would like to book the appointment for the fifteenth of October please, if that date still has an opening available."
+          hi-IN: "मुझे पंद्रह अक्टूबर के लिए अपॉइंटमेंट बुक करनी है, अगर उस तारीख पर अभी भी स्लॉट उपलब्ध हो तो, कृपया बता दीजिए।"
+          es-ES: "Necesito reservar la cita para el quince de octubre, si todavía hay un horario disponible para esa fecha, por favor."
+          id-ID: "Saya mau booking jadwalnya untuk tanggal lima belas Oktober, kalau masih ada slot yang kosong untuk tanggal itu, tolong ya."
+        text_norm:
+          en-US: "i would like to book the appointment for the 15th of october please if that date still has an opening available"
+          en-SG: "i would like to book the appointment for the 15th of october please if that date still has an opening available"
+          hi-IN: "मुझे 15 अक्टूबर के लिए अपॉइंटमेंट बुक करनी है अगर उस तारीख पर अभी भी स्लॉट उपलब्ध हो तो कृपया बता दीजिए"
+          es-ES: "necesito reservar la cita para el 15 de octubre si todavia hay un horario disponible para esa fecha por favor"
+          id-ID: "saya mau booking jadwalnya untuk tanggal 15 oktober kalau masih ada slot yang kosong untuk tanggal itu tolong ya"
+        entities:
+          en-US: [{type: date, value: "--10-15"}]
+          en-SG: [{type: date, value: "--10-15"}]
+          hi-IN: [{type: date, value: "--10-15"}]
+          es-ES: [{type: date, value: "--10-15"}]
+          id-ID: [{type: date, value: "--10-15"}]
+
+  # Phase 6 verification-only throwaway: same three fields as S3, but asked
+  # in a different order (phone, then date, then name). Proves the caller
+  # reacts to classified intent rather than scenario file order - the actual
+  # point of Phase 6, since our own mock agent otherwise always asks in the
+  # same name->phone->date order every time. en-US only; not part of the
+  # published corpus.
+  S3_reordered_test:
+    label: "Verification only - same fields as S3, asked phone/date/name"
+    turns:
+      - id: turn_phone
+        field: phone
+        gap_before_s: 4.0
+        text:
+          en-US: "Hi there, yes, I'd like to leave my callback number, it's nine one four, two three three, zero eight seven seven, if that's alright."
+        text_norm:
+          en-US: "hi there yes i'd like to leave my callback number it's 9142330877 if that's alright"
+        entities:
+          en-US: [{type: phone, value: "9142330877", digits: 10}]
+      - id: turn_date
+        field: date
+        gap_before_s: 7.0
+        text:
+          en-US: "And I would like to book the appointment for the fifteenth of October, if that date is open."
+        text_norm:
+          en-US: "and i would like to book the appointment for the 15th of october if that date is open"
+        entities:
+          en-US: [{type: date, value: "--10-15"}]
+      - id: turn_name
+        field: person_name
+        gap_before_s: 8.0
+        text:
+          en-US: "And just so you have it, my name is Rachel Hoffman, calling about that same appointment."
+        text_norm:
+          en-US: "and just so you have it my name is rachel hoffman calling about that same appointment"
+        entities:
+          en-US: [{type: person_name, value: "Rachel Hoffman"}]

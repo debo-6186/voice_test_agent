@@ -1,0 +1,130 @@
+# PolyCall Bench - source utterance definitions
+# Every utterance carries its ground-truth text, a normalised form for WER
+# scoring, and typed entities. The entities are the primary metric: they
+# survive a noisy referee ASR where a full transcript does not.
+version: 1
+
+# tts_voice is an espeak-ng voice code (the tts=espeak backend).
+# elevenlabs_voice_id is a *different* namespace - an opaque ElevenLabs voice
+# ID (the tts=elevenlabs backend) - never the same string as tts_voice.
+# Placeholders below (REPLACE_WITH_ELEVENLABS_*) must be filled with real
+# voice IDs from the project's ElevenLabs account before a production corpus
+# build; tts_elevenlabs() will fail loudly on an unresolved placeholder.
+languages:
+  en-US:
+    name: English (United States)
+    tts_voice: en-us
+    elevenlabs_voice_id: GogJbMCDT0Viv4cU3N4s   # user-specified English voice
+    referee_hint: whisper-large-v3
+  en-SG:
+    name: English (Singapore)
+    tts_voice: en-gb
+    elevenlabs_voice_id: aSXZu6bgEOS8MXVRzjPi   # user-specified Singaporean-accent voice
+    referee_hint: whisper-large-v3
+    notes: Singlish discourse particles and local toponyms are the hard part.
+  hi-IN:
+    name: Hindi
+    tts_voice: hi
+    elevenlabs_voice_id: LMAakzUPP3447PeBfaAP   # user-specified Hindi voice
+    referee_hint: tbd-phase-0   # Whisper ~21% WER; must benchmark alternatives
+    notes: Devanagari; numerals spoken as words must normalise to digits.
+  es-ES:
+    name: Spanish (Spain)
+    tts_voice: es
+    elevenlabs_voice_id: NDcVpQJv7Naa7ZKrqtEk   # user-specified Spanish voice
+    referee_hint: whisper-large-v3
+    notes: Control language - lowest referee error of the set.
+  id-ID:
+    name: Bahasa Indonesia
+    tts_voice: id
+    elevenlabs_voice_id: qAJVXEQ6QgjOQ25KuoU8   # user-specified Malay/Bahasa voice
+    referee_hint: whisper-large-v3
+
+utterances:
+  # ---------------------------------------------------------------- en-US
+  - id: enUS-E1
+    lang: en-US
+    class: entity
+    text: "My name is Rachel Hoffman and my callback number is nine one four, two three three, zero eight seven seven."
+    text_norm: "my name is rachel hoffman and my callback number is 9142330877"
+    entities:
+      - {type: person_name, value: "Rachel Hoffman"}
+      - {type: phone, value: "9142330877", digits: 10}
+  - id: enUS-D1
+    lang: en-US
+    class: self_correction
+    text: "My reference is B M seven four... sorry, B N seven four nine one zero two."
+    text_norm: "my reference is bn749102"
+    entities:
+      - {type: ref_code, value: "BN749102", trap: "BM74 is a false start and must not be captured"}
+
+  # ---------------------------------------------------------------- en-SG
+  - id: enSG-E1
+    lang: en-SG
+    class: entity
+    text: "My name is Tan Wei Ming, handphone is nine one two three, four five six seven."
+    text_norm: "my name is tan wei ming handphone is 91234567"
+    entities:
+      - {type: person_name, value: "Tan Wei Ming"}
+      - {type: phone, value: "91234567", digits: 8, format: sg_mobile}
+  - id: enSG-CS1
+    lang: en-SG
+    class: code_switch
+    text: "Sorry ah, can help me check the booking or not? My N R I C is S eight two four five six seven one D."
+    text_norm: "sorry ah can help me check the booking or not my nric is s8245671d"
+    entities:
+      - {type: nric, value: "S8245671D", format: sg_nric}
+    code_switch: {markers: ["ah", "or not"], register: singlish}
+
+  # ---------------------------------------------------------------- hi-IN
+  - id: hiIN-E1
+    lang: hi-IN
+    class: entity
+    text: "मेरा नाम प्रिया शर्मा है और मेरा नंबर है नौ आठ सात छह पाँच चार तीन दो एक शून्य।"
+    text_norm: "मेरा नाम प्रिया शर्मा है और मेरा नंबर है 9876543210"
+    entities:
+      - {type: person_name, value: "प्रिया शर्मा", romanised: "Priya Sharma"}
+      - {type: phone, value: "9876543210", digits: 10, format: in_mobile}
+  - id: hiIN-CS1
+    lang: hi-IN
+    class: code_switch
+    text: "Actually मुझे booking cancel करनी है, refund कब तक आएगा?"
+    text_norm: "actually मुझे booking cancel करनी है refund कब तक आएगा"
+    entities:
+      - {type: intent, value: "cancel_booking"}
+    code_switch: {markers: ["actually", "booking", "cancel", "refund"], register: hinglish}
+
+  # ---------------------------------------------------------------- es-ES
+  - id: esES-E1
+    lang: es-ES
+    class: entity
+    text: "Me llamo Carlos Jiménez y mi número es seis uno cuatro, dos tres tres, cero ocho siete."
+    text_norm: "me llamo carlos jimenez y mi numero es 614233087"
+    entities:
+      - {type: person_name, value: "Carlos Jiménez"}
+      - {type: phone, value: "614233087", digits: 9, format: es_mobile}
+  - id: esES-C1
+    lang: es-ES
+    class: confusable
+    text: "Necesito el quince de marzo, no el cincuenta. Quince, uno cinco."
+    text_norm: "necesito el 15 de marzo no el 50 quince 1 5"
+    entities:
+      - {type: date, value: "--03-15", trap: "quince vs cincuenta minimal pair"}
+
+  # ---------------------------------------------------------------- id-ID
+  - id: idID-E1
+    lang: id-ID
+    class: entity
+    text: "Nama saya Budi Santoso, nomor saya nol delapan satu dua, tiga empat lima enam, tujuh delapan sembilan."
+    text_norm: "nama saya budi santoso nomor saya 08123456789"
+    entities:
+      - {type: person_name, value: "Budi Santoso"}
+      - {type: phone, value: "08123456789", digits: 11, format: id_mobile}
+  - id: idID-CS1
+    lang: id-ID
+    class: code_switch
+    text: "Maaf, booking saya mau di-cancel, refund-nya kapan ya?"
+    text_norm: "maaf booking saya mau dicancel refundnya kapan ya"
+    entities:
+      - {type: intent, value: "cancel_booking"}
+    code_switch: {markers: ["booking", "di-cancel", "refund"], register: id_en_mixed}

@@ -1,0 +1,12 @@
+.env
+.git
+.venv
+venv
+out/
+runs/
+corpus/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+node_modules/

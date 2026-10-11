@@ -4,3 +4,11 @@ __pycache__/
 .venv/
 venv/
 .env
+runs/
+out/
+corpus/
+*.wav
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+node_modules/

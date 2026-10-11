@@ -1,0 +1,16 @@
+{
+  "beds": [
+    {
+      "id": "bed_cafe",
+      "file": "assets/beds/bed_cafe.mp3",
+      "sha256": "14d8cd45db638d1e1bd58f9182b337dbd562716f162bc90491d7b1c92d6d3f02",
+      "seed": 4471,
+      "sr": 16000,
+      "duration_s": 60.0,
+      "params": {
+        "kind": "cafe",
+        "talkers": 16
+      }
+    }
+  ]
+}
