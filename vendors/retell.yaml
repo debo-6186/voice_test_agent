@@ -1,5 +1,6 @@
 vendor: retell
-verified_date: "2026-10-12"
+verified_date: "2026-10-14"   # create: block live-verified via
+                              # scripts/verify_vendor_adapters.py --vendor retell
 
 dial:
   method: register_call
@@ -28,3 +29,25 @@ notes: >
   call_status=registered, disconnection_reason=null, pure silence - looks
   like a SIP bug, is actually billing (error string: "Trial over quota,
   please add payment.").
+
+# Phase 7 - agent creation. Retell is a two-resource flow: a "Retell LLM"
+# first, then an agent referencing it via response_engine. LIVE-VERIFIED
+# 2026-10-14: scripts/verify_vendor_adapters.py --vendor retell - full
+# create/get/delete round trip (both the agent and its llm resource),
+# name/language/voice all confirmed to round-trip.
+create:
+  llm_endpoint: "https://api.retellai.com/create-retell-llm"
+  llm_delete_endpoint: "https://api.retellai.com/delete-retell-llm/{llm_id}"
+  endpoint: "https://api.retellai.com/create-agent"
+  get_endpoint: "https://api.retellai.com/get-agent/{agent_id}"
+  delete_endpoint: "https://api.retellai.com/delete-agent/{agent_id}"
+  voice_field_path: "voice_id"   # confirmed live
+  languages:
+    en-US: {code: "en-US"}
+    en-SG: {code: null, fallback: ["en-US"]}
+    hi-IN: {code: "hi-IN"}
+    es-ES: {code: "es-ES"}
+    id-ID: {code: "id-ID"}
+  asr:
+    language_field_path: "language"
+    stt_provider_field_path: "custom_stt_config.provider"

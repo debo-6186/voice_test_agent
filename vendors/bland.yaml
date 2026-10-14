@@ -1,0 +1,69 @@
+vendor: bland
+verified_date: "2026-09"   # docs/vendors.md's own research date - dial/create
+                            # not yet live-verified against this project's
+                            # own account (BLAND_API_KEY empty in .env)
+status: not_live_verified
+
+dial:
+  method: static_uri
+  uri_template: "sip:{user}@us2.sip.bland.ai:5061;transport=tls"   # + ca2./
+                                                                     # asia2./
+                                                                     # eu2., region
+                                                                     # not modeled;
+                                                                     # the "sip:{user}@"
+                                                                     # prefix is our
+                                                                     # best completion of
+                                                                     # docs/vendors.md's
+                                                                     # bare-host example -
+                                                                     # UNCONFIRMED, this
+                                                                     # vendor is gated
+                                                                     # anyway (see below)
+  user: probe
+  gated: true
+  gated_reason: >
+    Requires a SIP entitlement enabled by Bland support - not requested yet.
+    Dialling will fail until that request is filed and approved
+    (docs/vendors.md: "request in week 1").
+
+auth:
+  method: none
+  api_key_env: BLAND_API_KEY   # used for the create: endpoints below, not dial
+
+connect_timeout_s: 10
+
+codecs: [PCMU, PCMA, OPUS, G722, G729]
+
+concurrency:
+  tiers:
+    start_free: 10
+    agent_phone_29_99: 1   # NEVER select this plan - drops to 1 concurrent call
+    build_299: 50
+    scale_499: 100
+  rate_limit: "Start: 100/day,100/hr. Agent Phone: 50/day,20/hr. Build: 2000/day,1000/hr. Scale: 5000/day,1000/hr"
+
+# Phase 7 - agent creation. Language is a PER-CALL param (POST /v1/calls),
+# not an agent-create param, so bland_create_agent() returns a
+# call_time_overrides envelope the other four live vendors leave empty -
+# apply this at dial time, not creation time.
+create:
+  endpoint: "https://api.bland.ai/v1/agents"
+  get_endpoint: "https://api.bland.ai/v1/agents/{agent_id}"
+  delete_endpoint: "https://api.bland.ai/v1/agents/{agent_id}"
+  call_endpoint: "https://api.bland.ai/v1/calls"   # where call_time_overrides apply
+  languages:
+    en-US: {code: "en-US"}
+    en-SG: {code: null, fallback: ["en-US"]}
+    hi-IN: {code: "hi"}
+    hi-IN_romanised: {code: "hi-Latn"}   # Bland uniquely supports romanised
+                                        # Hinglish - not selected by default
+    id-ID: {code: "id"}
+    es-ES: {code: "es"}
+
+notes: >
+  Free tier is 100 calls/day AND 100/hour - 900 calls would be a 9-day run.
+  Build ($299) raises to 2,000/day. Never select Agent Phone: it drops you
+  to 1 concurrent call (docs/vendors.md billing trap). vendors/create.py's
+  bland_create_agent() is written against documented payload shapes but has
+  never been called against a real key - treat its field names as
+  unconfirmed until BLAND_API_KEY is set and
+  scripts/verify_vendor_adapters.py --vendor bland passes.

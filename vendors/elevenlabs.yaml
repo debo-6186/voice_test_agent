@@ -33,3 +33,26 @@ notes: >
   the API that a real assigned number is what's actually dialable - do not
   assume an arbitrary string works without checking /v1/convai/phone-numbers
   first for a new agent.
+
+# Phase 7 - agent creation. Voice is NOT read from vendors/voices.yaml -
+# ElevenLabs is the native vendor for config/utterances.yaml's
+# elevenlabs_voice_id, read directly from there per language (see
+# vendors/create.py's elevenlabs_create_agent()). LIVE-VERIFIED 2026-10-14:
+# scripts/verify_vendor_adapters.py --vendor elevenlabs - full create/get/
+# delete round trip, name/language/voice all confirmed to round-trip.
+create:
+  endpoint: "https://api.elevenlabs.io/v1/convai/agents/create"
+  get_endpoint: "https://api.elevenlabs.io/v1/convai/agents/{agent_id}"
+  delete_endpoint: "https://api.elevenlabs.io/v1/convai/agents/{agent_id}"
+  agent_language_field_path: "conversation_config.agent.language"   # confirmed live
+  voice_field_path: "conversation_config.tts.voice_id"               # confirmed live
+  languages:
+    en-US: {code: "en"}
+    en-SG: {code: null, fallback: ["en-US"]}
+    hi-IN: {code: "hi"}
+    es-ES: {code: "es"}
+    id-ID: {code: "id"}
+  asr:
+    provider_field_path: "conversation_config.asr.provider"      # confirm live
+    quality_field_path: "conversation_config.asr.quality"
+    keywords_field_path: "conversation_config.asr.keywords"

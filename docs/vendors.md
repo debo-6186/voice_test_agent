@@ -65,6 +65,21 @@ you cannot multiply capacity by creating orgs.
 | LiveKit | **None** — worker code + dispatch metadata (512 KiB) | `inference.STT(language=)`; normalises ISO-639/BCP-47 automatically |
 | Pipecat | **None** — Python, config set at **deploy** time | `Language` enum, 281 codes |
 
+**Phase 7 status (2026-10-14)**: `vendors/create.py` implements this table as
+real code - `vendors/{retell,elevenlabs,telnyx}.yaml`'s `create:` blocks are
+**live-verified** (run `scripts/verify_vendor_adapters.py --vendor <v>` to
+re-confirm). `vendors/{vapi,bland}.yaml` are written against this table's
+documented shapes but carry `status: not_live_verified` - `VAPI_API_KEY`/
+`BLAND_API_KEY` are empty in `.env`; wire in real keys and rerun the same
+verify script to promote them. **LiveKit and Pipecat's "None" above is
+structural, not a gap to fill** - `vendors/create.py` raises a loud
+`VendorCreateError` quoting each yaml's `create_unsupported_reason` rather
+than faking a call that was never going to succeed; wiring a Mode-B agent
+into either vendor means writing a worker/deploy-time config, not calling
+an HTTP endpoint that doesn't exist. A freshly-created agent is not yet
+wired into `vendors/loader.py`'s `resolve_dial()` - that's a known follow-up
+for whenever Mode B's `--standard-agent` spec/CLI exists.
+
 Only the prompt string ports cleanly. Voice IDs live in per-vendor namespaces and
 language semantics differ fundamentally. **Define one canonical internal config**
 (`{prompt, llm, voice_key, bcp47_language}`) and write thin adapters. The voice-

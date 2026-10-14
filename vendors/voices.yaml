@@ -1,0 +1,59 @@
+# Voice-mapping table for vendor-hosted agents created via vendors/create.py.
+#
+# IMPORTANT: this is a DIFFERENT namespace from config/utterances.yaml's
+# elevenlabs_voice_id. That field is the simulated CALLER's own TTS voice
+# (consumed by caller/adaptive.py's synth_and_degrade()). This file is the
+# VENDOR AGENT's voice - what the agent we're calling sounds like, not what
+# our own caller sounds like. They happen to both be ElevenLabs voice IDs in
+# some rows below, but conflating them is an easy and real mistake to make.
+#
+# Keyed by voice_key (an abstract indirection CanonicalAgentConfig.voice_key
+# points at - "default" is the only key defined so far) then by vendor.
+#
+# ElevenLabs is NOT listed under voice_keys.default below - it reads
+# config/utterances.yaml's per-language elevenlabs_voice_id directly at
+# create time instead, since it's the native vendor for that table already
+# (see vendors/create.py's elevenlabs_create_agent()). Duplicating it here
+# would just be a second, driftable copy of the same fact.
+#
+# Telnyx IS listed below with its own native voice (the current default -
+# see vendors/create.py's telnyx_create_agent() docstring for why its BYOK
+# ElevenLabs path, which would also read config/utterances.yaml, isn't the
+# default yet).
+
+version: 1
+
+voice_keys:
+  default:
+    retell:
+      voice_id: 'retell-Della'
+      source: live_introspection  # --vendor retell, reads RETELL_AGENT_ID's
+                                      # real voice_id via retell_get_agent()
+      introspected_date: "2026-10-14"
+      per_language: {}                # optional override map, empty pending
+                                       # evidence one voice doesn't cover all
+                                       # 5 languages acceptably
+    telnyx:
+      voice_id: 'Telnyx.Ultra.f786b574-daa5-4673-aa0c-cbe3e8534c02'
+      source: live_introspection  # --vendor telnyx, reads the real
+                                      # existing assistant's native voice.
+                                      # Used as the default (use_byok_voice=
+                                      # False) - see vendors/create.py's
+                                      # telnyx_create_agent() docstring for
+                                      # why BYOK isn't the default yet.
+      introspected_date: "2026-10-14"
+      per_language: {}
+    vapi:
+      voice_id: null
+      source: deferred_no_api_key    # VAPI_API_KEY empty in .env
+      per_language: {}
+    bland:
+      voice_id: null
+      source: deferred_no_api_key    # BLAND_API_KEY empty in .env
+      per_language: {}
+    livekit:
+      voice_id: "n/a"
+      source: structural_gap_no_create_api
+    pipecat:
+      voice_id: "n/a"
+      source: structural_gap_no_create_api

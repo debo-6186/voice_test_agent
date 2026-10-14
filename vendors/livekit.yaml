@@ -44,3 +44,11 @@ notes: >
   The dispatch rule's agent_name must match the worker's own registered
   name, which may or may not equal the dashboard display name - verify with
   a real test call, not just creation success.
+
+# Phase 7 - agent creation is structurally absent, not just undocumented.
+create: null
+create_unsupported_reason: >
+  No HTTP create-agent endpoint. Agent behaviour is worker code + dispatch
+  metadata (512 KiB) set at deploy/dispatch time, not an API call -
+  vendors/create.py raises VendorCreateError for this vendor instead of
+  faking success.

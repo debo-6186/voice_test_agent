@@ -38,7 +38,8 @@ from sip_probe.account import make_account, make_endpoint  # noqa: E402
 from caller.call import CallerCall, run_call  # noqa: E402
 from caller import intent  # noqa: E402
 from mock_agent import asr  # noqa: E402
-from vendors.loader import known_vendors, resolve_dial, VendorDialError  # noqa: E402
+from vendors.loader import known_vendors, load_vendor_config, resolve_dial, VendorDialError  # noqa: E402
+from vendors.languages import resolve_language, LanguageResolutionError  # noqa: E402
 
 
 def _load_condition(session_dir: str) -> dict:
@@ -134,6 +135,17 @@ def main() -> None:
         except VendorDialError as e:
             sys.exit(f"vendor dial resolution failed: {e}")
 
+    # Independent of whether an agent was created via vendors/create.py -
+    # this is about what language we're asking an existing vendor agent to
+    # operate in, and whether it had to fall back (docs/vendors.md: "record
+    # which fallback each vendor used, per call, in the manifest").
+    vendor_language = None
+    if args.vendor:
+        try:
+            vendor_language = resolve_language(load_vendor_config(args.vendor), args.lang).as_dict()
+        except LanguageResolutionError as e:
+            print(f"vendor_language not recorded: {e}")
+
     uri = args.uri or vendor_resolved["uri"]
     sip_auth_user = args.sip_auth_user or (vendor_resolved and vendor_resolved["sip_auth_user"])
     sip_auth_pass = args.sip_auth_pass or (vendor_resolved and vendor_resolved["sip_auth_pass"])
@@ -167,8 +179,11 @@ def main() -> None:
 
         print(json.dumps(turn_log, indent=2, ensure_ascii=False))
         if args.log:
+            log_row = {"turns": turn_log}
+            if vendor_language:
+                log_row["vendor_language"] = vendor_language
             with open(args.log, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"turns": turn_log}, ensure_ascii=False) + "\n")
+                f.write(json.dumps(log_row, ensure_ascii=False) + "\n")
     finally:
         del call
         del acc
