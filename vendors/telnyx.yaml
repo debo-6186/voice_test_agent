@@ -1,0 +1,44 @@
+vendor: telnyx
+verified_date: "2026-10-14"
+
+dial:
+  method: static_uri_via_texml_lookup
+  uri_template: "sip:{user}@{sip_subdomain}.sip.telnyx.com"
+  user: probe
+  assistant_id: "assistant-6bc7551f-cb18-4118-974d-9a13dd4dee1c"
+  # sip_subdomain is NOT guessable from the assistant id alone in general -
+  # resolved at dial time via two read-only (free) API calls:
+  #   GET /v2/ai/assistants/{assistant_id}
+  #     -> telephony_settings.default_texml_app_id
+  #   GET /v2/texml_applications/{app_id}
+  #     -> data.inbound.sip_subdomain
+  # It happened to equal the assistant_id in this verified case only because
+  # Telnyx auto-named the TeXML app "ai-assistant-{assistant_id}" - do not
+  # assume that equality holds for a renamed or manually-created app.
+
+auth:
+  api_key_env: TELNYX_API_KEY   # only used for the sip_subdomain lookup above
+  method: none                 # the TeXML app's sip_subdomain_receive_settings
+                                # is "from_anyone" - no SIP auth needed to dial
+
+connect_timeout_s: 10
+
+codecs: [OPUS, AMR-WB, G722, G711A, G711U]
+
+concurrency:
+  trial: 2
+  after_level2_verification: 10
+  rate_limit: "CPS: first 5 free, then $12-30/CPS"
+
+recordings:
+  enabled_by_default: true   # telephony_settings.recording_settings on the
+                              # assistant itself (dual-channel mp3)
+  api: "GET /v2/recordings"
+  note: "download_urls are presigned S3 links, expire in 10 minutes - refetch, never bookmark"
+
+notes: >
+  No documented direct "dial sip:xxx@sip.telnyx.com into an assistant"
+  pattern in Telnyx's own docs or portal UI - discovered via the assistant's
+  own API record, not the Connections page (which only shows generic SIP/
+  voice connections, not AI Assistant calls - those are a separate
+  record_type=ai-voice-assistant CDR category entirely).

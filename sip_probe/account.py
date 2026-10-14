@@ -68,10 +68,18 @@ class SimpleAccount(pj.Account):
         pass
 
 
-def make_account(ep: pj.Endpoint, local_uri: str = "sip:probe@127.0.0.1") -> SimpleAccount:
+def make_account(ep: pj.Endpoint, local_uri: str = "sip:probe@127.0.0.1",
+                 auth_username: str | None = None, auth_password: str | None = None) -> SimpleAccount:
+    """auth_username/auth_password let the account answer a 401/407 digest
+    challenge on the INVITE itself (no REGISTER involved) - needed for a
+    LiveKit SIP trunk gated on username/password rather than allowed_addresses
+    (the latter is a support-enabled feature per-project, not on by default)."""
     acc_cfg = pj.AccountConfig()
     acc_cfg.idUri = local_uri
     acc_cfg.regConfig.registerOnAdd = False
+    if auth_username and auth_password:
+        cred = pj.AuthCredInfo("digest", "*", auth_username, 0, auth_password)
+        acc_cfg.sipConfig.authCreds.append(cred)
     acc = SimpleAccount()
     acc.create(acc_cfg)
     return acc

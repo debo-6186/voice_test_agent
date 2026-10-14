@@ -1,0 +1,46 @@
+vendor: livekit
+verified_date: "2026-10-14"
+
+dial:
+  method: static_uri
+  uri_template: "sip:{user}@{sip_subdomain}.sip.livekit.cloud"
+  user: probe
+  sip_subdomain: "1tromtli32j"   # the project's RAW id, shown on the inbound
+                                 # trunk's own dashboard page as "SIP URI" -
+                                 # NOT the pretty custom subdomain used in the
+                                 # wss:// LIVEKIT_URL. Confirmed live: dialling
+                                 # the wss:// subdomain returned a 404 "No
+                                 # trunk found" every time.
+
+auth:
+  method: digest
+  username_env: LIVEKIT_SIP_AUTH_USERNAME
+  password_env: LIVEKIT_SIP_AUTH_PASSWORD
+  note: >
+    allowed_addresses IP-allowlisting requires a support-enabled feature
+    flag, not on by default - also returns 404 "No trunk found" (not an
+    auth error) when unavailable. Use username/password digest auth instead.
+
+connect_timeout_s: 40   # LiveKit's agent-dispatch cold start (worker spin-up
+                         # + room join) exceeded a 10s connect window live -
+                         # longer than Retell/ElevenLabs' PSTN answer time.
+
+trunk:
+  inbound_trunk_id: ST_yPsMg74RRqoh
+  dispatch_rule_id: SDR_4M7uaNk83J4E
+  agent_name: customer-support-03e
+
+codecs: [PCMU, PCMA, G722]   # no Opus - force via onlyListedCodecs
+
+concurrency:
+  tiers:
+    build_free_sessions: 5
+    ship_50: 20
+    scale_500: 600
+
+notes: >
+  Server API (livekit-api Python package) created the trunk + dispatch rule
+  programmatically - no console clicking needed once credentials are set.
+  The dispatch rule's agent_name must match the worker's own registered
+  name, which may or may not equal the dashboard display name - verify with
+  a real test call, not just creation success.
