@@ -9,10 +9,10 @@ a per-run verification step; treat this as the researched starting point, not tr
 | Vendor | Dial-in | URI / mechanism | Auth |
 |---|---|---|---|
 | **Vapi** | Yes | `sip:{name}@sip.vapi.ai` (EU: `sip.eu.vapi.ai`) | **None** — docs state no auth or SIP registration required |
-| **Retell** | Yes | `POST /v2/register-phone-call` → `call_id` → `sip:{call_id}@sip.retellai.com` | The one-time `call_id` *is* the credential |
-| **Telnyx** | Yes | SIP URI Calling: `user@sip.telnyx.com`; or SIP Attach: `<ext>@<appFQDN>.sip.telnyx.com` | "From Anyone (unrestricted)" setting; no number needed |
-| **LiveKit** | Yes | `sip:{subdomain}.sip.livekit.cloud`, inbound trunk with `numbers: []` | Laptop public IP in `allowed_addresses` (or username/password). Self-hostable |
-| **ElevenLabs** | Probably | `sip:+1999...@sip.rtc.elevenlabs.io:5060` | Requires an imported E.164 number — but their own doc example (`+19991234567`) is non-routable, suggesting arbitrary well-formed strings work. **Verify empirically in Phase 0.** |
+| **Retell** | Yes | `POST /v2/register-phone-call` → `call_id` → `sip:{call_id}@sip.retellai.com` — **verified live**, see `vendors/retell.yaml` | The one-time `call_id` *is* the credential |
+| **Telnyx** | Yes | **Verified live, not SIP URI Calling**: an AI Assistant is reachable at `sip:{user}@{sip_subdomain}.sip.telnyx.com`, where `sip_subdomain` is the assistant's own TeXML application's `inbound.sip_subdomain` — resolve via `GET /v2/ai/assistants/{id}` → `telephony_settings.default_texml_app_id` → `GET /v2/texml_applications/{app_id}`. Not discoverable from the portal's Connections page (that only lists generic SIP/voice connections — AI Assistant calls are a separate `record_type=ai-voice-assistant` CDR category). See `vendors/telnyx.yaml` | `sip_subdomain_receive_settings: "from_anyone"` on the TeXML app — no auth needed in the verified case |
+| **LiveKit** | Yes | `sip:{user}@{sip_subdomain}.sip.livekit.cloud`, inbound trunk with `numbers: []` — **verified live**: `sip_subdomain` is the project's **raw id** shown on the inbound trunk's own dashboard page, *not* the pretty custom subdomain used in the `wss://` `LIVEKIT_URL` (dialling the pretty one returns a live `404 No trunk found`). See `vendors/livekit.yaml` | `allowed_addresses` IP-allowlisting needs a support-enabled feature flag (also 404s, not an auth error, when unavailable) — username/password digest auth worked instead. Self-hostable |
+| **ElevenLabs** | Yes — **verified live** | `sip:+1999...@sip.rtc.elevenlabs.io:5060` | Requires an imported E.164 number assigned to the agent — confirmed via `GET /v1/convai/phone-numbers`; dialling by `agent_id` alone is not supported. See `vendors/elevenlabs.yaml` |
 | **Bland** | Gated | `us2.sip.bland.ai:5061;transport=tls` (+ `ca2.`, `asia2.`, `eu2.`) | Requires a SIP entitlement enabled by support — **request in week 1** |
 | **Pipecat** | Indirect | No SIP stack at all; terminate via Daily/Twilio/Telnyx | Inherits the provider's |
 | **Synthflow** | **Blocked** | `sip.synthflow.ai:32682;transport=tls` | Enterprise-only, **$30k/yr floor**, self-serve reselling removed 2026-09-15 |
@@ -97,8 +97,8 @@ publishable finding.
 | **Vapi** | `artifact.messages[]` with `secondsFromStart`, `duration` | 7 endpoints incl. stereo, PCAP; 302 → signed URL | `artifact.performanceMetrics` per turn | Not stated |
 | **ElevenLabs** | `GET /v1/convai/conversations/{id}`, `time_in_call_secs` | separate get-audio endpoint | No explicit per-turn fields; OTLP trace export | **Default 2 years**, configurable |
 | **Bland** | `transcripts[]` with timestamps | `recording_url` (needs `record: true`) | `latency` webhook event only | `recording_expiration` returned in webhook |
-| **LiveKit** | `session.history`, `make_session_report()` | via egress (file egress max 3 h) | Excellent code-level: `EOUMetrics`, `ttft`, `ttfb`, `e2e_latency` | 30-day observability window |
-| **Telnyx** | Aggregates confirmed; per-conversation retrieval not confirmed | via Voice API recordings | Not documented | Not stated |
+| **LiveKit** | `session.history`, `make_session_report()` | **Not automatic** — needs an explicit Egress job (room-composite, to S3/GCS/Azure only, no local disk); built-in Session Observability page exists separately for debugging but isn't an Egress recording. Max 3 h file egress | Excellent code-level: `EOUMetrics`, `ttft`, `ttfb`, `e2e_latency` | 30-day observability window |
+| **Telnyx** | **Verified live** — `GET /v2/detail_records?filter[record_type]=ai-voice-assistant` returns `conversation_id`, `telnyx_session_id`, cost, duration per call | **Verified live, enabled by default** on the AI Assistant (`telephony_settings.recording_settings`, dual-channel mp3) — `GET /v2/recordings` (filter by `call_leg_id`/`call_session_id`/etc.), `download_urls` are presigned S3 links that **expire in 10 minutes** (refetch, never bookmark) | Not documented | Not stated |
 
 **Remember: we do not use vendor transcripts for scoring.** These fields are for
 cross-checking, latency corroboration and debugging only.

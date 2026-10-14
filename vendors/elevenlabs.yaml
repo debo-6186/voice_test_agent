@@ -1,0 +1,35 @@
+vendor: elevenlabs
+verified_date: "2026-10-14"
+
+dial:
+  method: static_uri
+  uri_template: "sip:{number}@sip.rtc.elevenlabs.io:5060"
+  number: "+15094456456"   # verified live via GET /v1/convai/phone-numbers,
+                           # assigned_agent.agent_id == ELEVENLABS_AGENT_ID
+
+auth:
+  api_key_env: ELEVENLABS_API_KEY
+  agent_id_env: ELEVENLABS_AGENT_ID
+
+connect_timeout_s: 10
+
+codecs: [G711, G722]
+
+concurrency:
+  tiers:
+    free: 4
+    starter: 6
+    creator: 10
+    pro: 20
+    scale: 30
+    business: 40
+  burst: "up to 3x/300, billed 2x and lower STT/TTS priority - avoid for latency runs"
+
+notes: >
+  Requires an imported E.164-shaped number assigned to the agent in the
+  ElevenLabs dashboard - dialling by agent_id alone is not supported.
+  Vendor's own docs example number (+19991234567) is non-routable, which
+  suggested arbitrary well-formed numbers might work, but we verified via
+  the API that a real assigned number is what's actually dialable - do not
+  assume an arbitrary string works without checking /v1/convai/phone-numbers
+  first for a new agent.

@@ -1,0 +1,30 @@
+vendor: retell
+verified_date: "2026-10-12"
+
+dial:
+  method: register_call
+  register_url: "https://api.retellai.com/v2/register-phone-call"
+  sip_host: "sip.retellai.com"
+  ttl_seconds: 300   # must dial within 5 minutes of registering
+
+auth:
+  api_key_env: RETELL_API_KEY
+  agent_id_env: RETELL_AGENT_ID
+
+connect_timeout_s: 10
+
+codecs: [PCMU, PCMA, G722]
+
+concurrency:
+  default: 20
+  tier: pay-as-you-go
+  raise_by: "$8/concurrency/month; enterprise uncapped"
+  burst: "min(3x limit, limit+300) at +$0.10/min"
+
+notes: >
+  call_id from register-phone-call is single-use - re-register per call,
+  never reuse. Retell blocks calls the instant balance hits $0 (set
+  auto-recharge). A free trial with no card on file leaves the call stuck at
+  call_status=registered, disconnection_reason=null, pure silence - looks
+  like a SIP bug, is actually billing (error string: "Trial over quota,
+  please add payment.").

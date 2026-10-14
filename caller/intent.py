@@ -67,6 +67,14 @@ def _get_laya():
     return _laya_agent
 
 
+def warmup() -> None:
+    """Forces Laya's model load now instead of on the first real tier-2
+    classification - verified live that cold load costs ~15s, which landed
+    mid-call (a live vendor agent waiting for our reply) before this existed.
+    Call once before dialing, not per-call."""
+    _get_laya()
+
+
 def tier1_classify(text: str) -> str | None:
     t = text.lower()
     for intent, patterns in _TIER1_PATTERNS.items():

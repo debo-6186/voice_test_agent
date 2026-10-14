@@ -1,14 +1,23 @@
 #!/usr/bin/env python
 """Phase 6: dial a target with the real caller state machine - replaces
 scripts/test_mock_agent_call.py's fixed-order driver. Works against the mock
-agent (Phase 5) or, with --uri pointed at a real vendor SIP URI, a real call
-(same dial mechanics as scripts/dial_retell.py/dial_elevenlabs.py).
+agent (Phase 5) with --uri, or against a real vendor with --vendor (dial URI,
+auth and connect timeout resolved from vendors/*.yaml - Phase 7's vendor
+config, see vendors/loader.py).
 
+Mock agent / arbitrary SIP target:
 python scripts/run_caller.py \
     --session-dir out/sessions/sessions/en-US/S3_name_phone_date/ctl_clean \
     --scenario S3_name_phone_date --lang en-US \
     --uri sip:mockagent@127.0.0.1:5062 --local-port 5070 \
     --log out/caller_demo.jsonl
+
+Real vendor:
+python scripts/run_caller.py \
+    --session-dir out/sessions/sessions/en-US/S3_name_phone_date/ctl_clean \
+    --scenario S3_name_phone_date --lang en-US \
+    --vendor telnyx --local-port 5070 --stun stun.l.google.com:19302 \
+    --tts elevenlabs --log out/caller_telnyx.jsonl
 """
 from __future__ import annotations
 
@@ -27,6 +36,9 @@ import pjsua2 as pj  # noqa: E402
 
 from sip_probe.account import make_account, make_endpoint  # noqa: E402
 from caller.call import CallerCall, run_call  # noqa: E402
+from caller import intent  # noqa: E402
+from mock_agent import asr  # noqa: E402
+from vendors.loader import known_vendors, resolve_dial, VendorDialError  # noqa: E402
 
 
 def _load_condition(session_dir: str) -> dict:
@@ -54,7 +66,12 @@ def main() -> None:
     p.add_argument("--session-dir", required=True)
     p.add_argument("--scenario", required=True)
     p.add_argument("--lang", default="en-US")
-    p.add_argument("--uri", required=True)
+    p.add_argument("--uri", default=None,
+                   help="raw SIP URI to dial - required unless --vendor resolves one")
+    p.add_argument("--vendor", default=None, choices=known_vendors() or None,
+                   help="resolves --uri, --sip-auth-user/-pass and --connect-timeout-s "
+                        "from vendors/<vendor>.yaml instead of passing them by hand - "
+                        "any of those flags passed explicitly still overrides its value")
     p.add_argument("--local-port", type=int, default=5070)
     p.add_argument("--stun", default=None,
                    help="host:port - needed for anything off-localhost, see "
@@ -66,8 +83,20 @@ def main() -> None:
                    help="end-of-turn silence threshold - lower cuts dead air "
                         "but risks truncating the agent mid-sentence")
     p.add_argument("--asr-model", default="base")
+    p.add_argument("--sip-auth-user", default=None,
+                   help="digest auth username for trunks gated on username/password "
+                        "(e.g. LiveKit when allowed_addresses isn't enabled for the project)")
+    p.add_argument("--sip-auth-pass", default=None)
+    p.add_argument("--connect-timeout-s", type=float, default=None,
+                   help="seconds to wait for media-active before giving up - "
+                        "defaults to the vendor's own recommended value with "
+                        "--vendor (e.g. LiveKit's agent-dispatch cold start "
+                        "needs well over the plain default of 10.0s), else 10.0")
     p.add_argument("--log", default=None)
     args = p.parse_args()
+
+    if not args.uri and not args.vendor:
+        p.error("either --uri or --vendor is required")
 
     scfg = yaml.safe_load(open(os.path.join(REPO_ROOT, "config", "scenarios.yaml"), encoding="utf-8"))
     turns_def = [dict(t) for t in scfg["scenarios"][args.scenario]["turns"]]
@@ -82,15 +111,44 @@ def main() -> None:
     ucfg = yaml.safe_load(open(os.path.join(REPO_ROOT, "config", "utterances.yaml"), encoding="utf-8"))
     lang_meta = ucfg["languages"][args.lang]
 
+    # Forces Whisper's and Laya's model loads now (~4.4s + ~15s measured live)
+    # instead of on the first real transcribe()/classify() call, which
+    # otherwise lands mid-call with a live vendor agent waiting on us.
+    print("warming up ASR + intent classifier...")
+    warmup_start = time.time()
+    asr.warmup(args.asr_model)
+    intent.warmup()
+    print(f"warmup done in {time.time() - warmup_start:.1f}s")
+
     ep = make_endpoint(port=args.local_port, stun_server=args.stun)
     ep.libRegisterThread("caller-main")
-    acc = make_account(ep)
+
+    # Resolved as late as possible, right before dialing - Retell's call_id
+    # (one of the four dial methods vendors/*.yaml supports) is single-use
+    # with a 5-minute TTL from registration.
+    vendor_resolved = None
+    if args.vendor:
+        print(f"resolving dial target from vendors/{args.vendor}.yaml...")
+        try:
+            vendor_resolved = resolve_dial(args.vendor)
+        except VendorDialError as e:
+            sys.exit(f"vendor dial resolution failed: {e}")
+
+    uri = args.uri or vendor_resolved["uri"]
+    sip_auth_user = args.sip_auth_user or (vendor_resolved and vendor_resolved["sip_auth_user"])
+    sip_auth_pass = args.sip_auth_pass or (vendor_resolved and vendor_resolved["sip_auth_pass"])
+    connect_timeout_s = args.connect_timeout_s
+    if connect_timeout_s is None:
+        connect_timeout_s = vendor_resolved["connect_timeout_s"] if vendor_resolved else 10.0
+
+    acc = make_account(ep, auth_username=sip_auth_user, auth_password=sip_auth_pass)
     call = CallerCall(acc, pj.PJSUA_INVALID_ID)
-    call.makeCall(args.uri, pj.CallOpParam(True))
+    print(f"dialing {uri} ...")
+    call.makeCall(uri, pj.CallOpParam(True))
 
     try:
         start = time.time()
-        while time.time() - start < 10.0 and not call.media_active:
+        while time.time() - start < connect_timeout_s and not call.media_active:
             ep.libHandleEvents(100)
         if not call.media_active:
             sys.exit("call did not reach media-active state")

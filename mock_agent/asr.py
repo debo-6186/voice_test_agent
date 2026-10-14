@@ -39,6 +39,13 @@ class Transcript:
     avg_logprob: float
 
 
+def warmup(model_name: str = "base") -> None:
+    """Forces the model load now instead of on the first real transcribe()
+    call - same cold-start rationale as caller/intent.py's warmup(): ~4.4s
+    measured live, which otherwise lands mid-call. Call once before dialing."""
+    _get_model(model_name)
+
+
 def whisper_lang(bcp47: str) -> str:
     """BCP-47 (en-US, en-SG, hi-IN, es-ES, id-ID) -> whisper's ISO-639-1 code.
     Whisper doesn't distinguish en-US/en-SG; the project's own accent-fallback
@@ -49,8 +56,19 @@ def whisper_lang(bcp47: str) -> str:
 
 def transcribe(wav_path: str, language: str | None = None, model_name: str = "base") -> Transcript:
     model = _get_model(model_name)
-    segments, _info = model.transcribe(wav_path, language=language)
-    segs = list(segments)
+    try:
+        segments, _info = model.transcribe(wav_path, language=language)
+        segs = list(segments)
+    except ValueError:
+        # Verified live: pyav's internal decoder context can throw
+        # "avcodec_send_packet() returned 22" after many sequential
+        # transcribe() calls in one long-lived process (9th call in one
+        # real call, ~90s in) - re-decoding the identical, valid WAV in a
+        # fresh process succeeds, so this is process/decoder-context state,
+        # not a bad file. Treat as an honestly-empty transcript (same as a
+        # real silent turn) rather than crashing the whole call - CLAUDE.md:
+        # a GPU/model hiccup should degrade, never hard-fail.
+        return Transcript(text="", confidence=0.0, avg_logprob=-999.0)
     if not segs:
         return Transcript(text="", confidence=0.0, avg_logprob=-999.0)
     text = " ".join(s.text.strip() for s in segs)
