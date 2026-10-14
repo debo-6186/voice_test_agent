@@ -33,14 +33,19 @@ or the reel to "get to the real work" — they are the distribution for the real
 ## Scope — do not reduce it
 
 Five languages: `en-US`, `en-SG`, `hi-IN`, `es-ES`, `id-ID`.
-Seven vendors: Retell, Vapi, ElevenLabs, Bland, LiveKit, Telnyx, Pipecat.
-(Synthflow is enterprise-only at a $30k/yr floor as of 2026-09-15 — excluded, with
-the reason stated in the paper, not silently dropped.)
+Four vendors: Retell, ElevenLabs, LiveKit, Telnyx. (Vapi, Bland and Pipecat were
+explicitly descoped 2026-10-14 — a deliberate user decision after Phase 7's vendor
+adapters shipped for all four remaining vendors, not a feasibility cut; their
+vendors/*.yaml and adapter code were removed outright rather than left half-built.
+Synthflow remains excluded separately, enterprise-only at a $30k/yr floor as of
+2026-09-15. Both exclusions are stated here and in PLAN.md, not silently dropped.)
 
-Full matrix = 5 langs x 7 vendors x 15 conditions x 4 scenarios x 3 repeats
-= **6,300 calls**. This runs in ~2.3 hours of wall clock because vendor tracks run
+Full matrix = 5 langs x 4 vendors x 15 conditions x 4 scenarios x 3 repeats
+= **3,600 calls**. This runs in ~2.3 hours of wall clock (unchanged from the
+7-vendor figure — per-vendor-track call count is identical at 900, since fewer
+concurrent tracks exactly offsets the smaller total) because vendor tracks run
 concurrently. Calls are not the bottleneck; engineering is. Do not propose cutting
-languages or vendors on feasibility grounds.
+languages or vendors further on feasibility grounds.
 
 ## Already built and tested — build on it, do not rewrite
 
@@ -108,7 +113,6 @@ the finished file.
   card on file leaves the call stuck at `call_status: registered` with
   `disconnection_reason: null` and silence. It looks like a SIP bug. It is billing.
 - LiveKit will not negotiate Opus on SIP — force G.711 via `onlyListedCodecs`.
-- Vapi's US media IPs are dynamic; open 40000-60000/UDP rather than pinning.
 
 ### Scoring
 - **Never use the vendor's transcript.** They are post-processed differently and

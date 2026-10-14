@@ -9,16 +9,13 @@ One explicit Python function per vendor rather than a templated dispatcher
 for its static_uri method because a dial URI is just a string; an agent's
 create payload is a materially different nested JSON shape per vendor).
 
-Live-verified against real accounts (2026-10-14 onward): Retell, ElevenLabs,
-Telnyx. Vapi and Bland are written against their documented payload shapes
-but NOT live-verified - VAPI_API_KEY/BLAND_API_KEY are empty in .env; these
-raise clearly if called without a key, same as every other vendor's _env()
-checks, and their create: block in the yaml carries status: not_live_verified.
-LiveKit and Pipecat have no HTTP creation endpoint at all (confirmed in
-docs/vendors.md's "Programmatic agent creation" table: LiveKit is worker
-code + dispatch metadata, Pipecat is Python config set at deploy time) -
-these raise VendorCreateError quoting the yaml's create_unsupported_reason
-rather than faking a call that was never going to succeed.
+Live-verified against real accounts (2026-10-14): Retell, ElevenLabs, Telnyx -
+the project's four in-scope vendors (Vapi, Bland and Pipecat were explicitly
+descoped the same day - CLAUDE.md). LiveKit has no HTTP creation endpoint at
+all (confirmed in docs/vendors.md's "Programmatic agent creation" table:
+worker code + dispatch metadata, not an API call) - it raises
+VendorCreateError quoting the yaml's create_unsupported_reason rather than
+faking a call that was never going to succeed.
 """
 from __future__ import annotations
 
@@ -304,96 +301,10 @@ def telnyx_delete_agent(agent_id: str) -> None:
 
 
 # --------------------------------------------------------------------------
-# Vapi, Bland - written against documented payload shapes, NOT live-verified
-# (VAPI_API_KEY/BLAND_API_KEY empty in .env). Bland's language is a per-call
-# param (POST /v1/calls), not an agent-create param, so it returns a
-# call_time_overrides envelope - every adapter returns this same envelope
-# shape (empty for the other vendors) so callers don't need a vendor-specific
-# branch just to find the language override.
-# --------------------------------------------------------------------------
-
-def vapi_create_agent(cfg: CanonicalAgentConfig) -> dict:
-    vcfg = load_vendor_config("vapi")
-    create = vcfg["create"]
-    api_key = _env(vcfg["auth"]["api_key_env"])
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    lang = resolve_language(vcfg, cfg.bcp47_language)
-    voice = _vendor_voice("vapi", cfg.voice_key)
-
-    resp = post_json(
-        create["endpoint"],
-        {
-            "name": cfg.agent_name,
-            "model": {"provider": cfg.llm.get("provider", "openai"),
-                     "model": cfg.llm.get("model", "gpt-4o"),
-                     "messages": [{"role": "system", "content": cfg.prompt}]},
-            "voice": {"provider": voice.get("provider", "11labs"), "voiceId": voice["voice_id"]},
-            "transcriber": {"provider": "deepgram", "language": lang.vendor_code},
-        },
-        headers, error_cls=VendorCreateError,
-    )
-    agent_id = resp.get("id")
-    if not agent_id:
-        raise VendorCreateError(f"/assistant create returned no id: {resp}")
-    return {"agent_id": agent_id, "call_time_overrides": {}, "metadata": {},
-           "language_resolution": lang.as_dict()}
-
-
-def vapi_get_agent(agent_id: str) -> dict:
-    vcfg = load_vendor_config("vapi")
-    api_key = _env(vcfg["auth"]["api_key_env"])
-    url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
-    return get_json(url, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
-
-
-def vapi_delete_agent(agent_id: str) -> None:
-    vcfg = load_vendor_config("vapi")
-    api_key = _env(vcfg["auth"]["api_key_env"])
-    url = vcfg["create"]["delete_endpoint"].format(agent_id=agent_id)
-    delete_json(url, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
-
-
-def bland_create_agent(cfg: CanonicalAgentConfig) -> dict:
-    vcfg = load_vendor_config("bland")
-    create = vcfg["create"]
-    api_key = _env(vcfg["auth"]["api_key_env"])
-    headers = {"Authorization": api_key}
-
-    lang = resolve_language(vcfg, cfg.bcp47_language)
-    voice = _vendor_voice("bland", cfg.voice_key)
-
-    resp = post_json(
-        create["endpoint"],
-        {"prompt": cfg.prompt, "voice": voice["voice_id"], "name": cfg.agent_name},
-        headers, error_cls=VendorCreateError,
-    )
-    agent_id = resp.get("agent_id")
-    if not agent_id:
-        raise VendorCreateError(f"/agents create returned no agent_id: {resp}")
-    return {"agent_id": agent_id, "call_time_overrides": {"language": lang.vendor_code},
-           "metadata": {}, "language_resolution": lang.as_dict()}
-
-
-def bland_get_agent(agent_id: str) -> dict:
-    vcfg = load_vendor_config("bland")
-    api_key = _env(vcfg["auth"]["api_key_env"])
-    url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
-    return get_json(url, {"Authorization": api_key}, error_cls=VendorCreateError)
-
-
-def bland_delete_agent(agent_id: str) -> None:
-    vcfg = load_vendor_config("bland")
-    api_key = _env(vcfg["auth"]["api_key_env"])
-    url = vcfg["create"]["delete_endpoint"].format(agent_id=agent_id)
-    delete_json(url, {"Authorization": api_key}, error_cls=VendorCreateError)
-
-
-# --------------------------------------------------------------------------
-# LiveKit, Pipecat - no HTTP creation API at all. Raise loudly rather than
-# fake a call that was never going to succeed (CLAUDE.md: "never a hard
-# fail" is about graceful degradation of OPTIONAL features, not about
-# pretending a structurally-absent one exists).
+# LiveKit - no HTTP creation API at all. Raises loudly rather than faking a
+# call that was never going to succeed (CLAUDE.md: "never a hard fail" is
+# about graceful degradation of OPTIONAL features, not about pretending a
+# structurally-absent one exists).
 # --------------------------------------------------------------------------
 
 def _unsupported_create(vendor: str, *_args, **_kwargs) -> dict:
@@ -410,8 +321,6 @@ _ADAPTERS = {
     "retell": (retell_create_agent, retell_get_agent, retell_delete_agent),
     "elevenlabs": (elevenlabs_create_agent, elevenlabs_get_agent, elevenlabs_delete_agent),
     "telnyx": (telnyx_create_agent, telnyx_get_agent, telnyx_delete_agent),
-    "vapi": (vapi_create_agent, vapi_get_agent, vapi_delete_agent),
-    "bland": (bland_create_agent, bland_get_agent, bland_delete_agent),
 }
 
 

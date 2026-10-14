@@ -43,17 +43,6 @@ voice_keys:
                                       # why BYOK isn't the default yet.
       introspected_date: "2026-10-14"
       per_language: {}
-    vapi:
-      voice_id: null
-      source: deferred_no_api_key    # VAPI_API_KEY empty in .env
-      per_language: {}
-    bland:
-      voice_id: null
-      source: deferred_no_api_key    # BLAND_API_KEY empty in .env
-      per_language: {}
     livekit:
-      voice_id: "n/a"
-      source: structural_gap_no_create_api
-    pipecat:
       voice_id: "n/a"
       source: structural_gap_no_create_api
