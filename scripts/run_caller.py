@@ -41,6 +41,10 @@ from caller import intent  # noqa: E402
 from mock_agent import asr  # noqa: E402
 from vendors.loader import known_vendors, load_vendor_config, resolve_dial, VendorDialError  # noqa: E402
 from vendors.languages import resolve_language, LanguageResolutionError  # noqa: E402
+from vendors.recordings import save_vendor_recording  # noqa: E402
+from vendors.create import set_agent_language, default_agent_id, VendorCreateError  # noqa: E402
+
+_LANGUAGE_SWITCHABLE_VENDORS = {"retell", "elevenlabs", "telnyx"}
 
 
 def _load_condition(session_dir: str) -> dict:
@@ -95,6 +99,14 @@ def main() -> None:
                         "--vendor (e.g. LiveKit's agent-dispatch cold start "
                         "needs well over the plain default of 10.0s), else 10.0")
     p.add_argument("--log", default=None)
+    p.add_argument("--save-vendor-recording", action="store_true",
+                   help="also fetch and save the VENDOR's own call recording "
+                        "(separate from the agent audio we always record on our "
+                        "own leg for scoring) into the call's out/calls/<call_id>/ "
+                        "directory, as vendor_recording.{wav,mp3}. Opt-in: an extra "
+                        "vendor API round trip per call, only implemented for "
+                        "retell/elevenlabs/telnyx (vendors/recordings.py) - a "
+                        "best-effort archival copy, not required for scoring.")
     args = p.parse_args()
 
     if not args.uri and not args.vendor:
@@ -139,13 +151,29 @@ def main() -> None:
     # Independent of whether an agent was created via vendors/create.py -
     # this is about what language we're asking an existing vendor agent to
     # operate in, and whether it had to fall back (docs/vendors.md: "record
-    # which fallback each vendor used, per call, in the manifest").
+    # which fallback each vendor used, per call, in the manifest"). This
+    # USED to be record-only - confirmed live (2026-10-16) that none of the
+    # three test agents' own language had ever actually been switched, so
+    # every non-English --lang call before this was silently dialing an
+    # English-configured agent. Now actually pushed live, every call, not
+    # just recorded - idempotent (same PATCH whether or not it's a no-op).
     vendor_language = None
     if args.vendor:
         try:
             vendor_language = resolve_language(load_vendor_config(args.vendor), args.lang).as_dict()
         except LanguageResolutionError as e:
             print(f"vendor_language not recorded: {e}")
+        if args.vendor in _LANGUAGE_SWITCHABLE_VENDORS:
+            try:
+                agent_id = default_agent_id(args.vendor)
+                print(f"setting {args.vendor} agent language for {args.lang}...")
+                set_agent_language(args.vendor, agent_id, args.lang)
+            except VendorCreateError as e:
+                sys.exit(f"failed to set {args.vendor} agent language for {args.lang}: {e}")
+        else:
+            print(f"note: {args.vendor} agent language not switchable via API - "
+                 f"whatever language it's configured with on the vendor's own "
+                 f"side is what this call will actually use")
 
     uri = args.uri or vendor_resolved["uri"]
     sip_auth_user = args.sip_auth_user or (vendor_resolved and vendor_resolved["sip_auth_user"])
@@ -193,6 +221,26 @@ def main() -> None:
         }
         if vendor_language:
             log_row["vendor_language"] = vendor_language
+
+        if args.save_vendor_recording:
+            if args.vendor:
+                print(f"fetching {args.vendor}'s own call recording...")
+                # Best-effort only - this is an opt-in archival convenience,
+                # never allowed to stop call_log.json (the primary artifact,
+                # written right below) from being written. Confirmed live
+                # this matters: an unhandled VendorHTTPError here previously
+                # crashed the whole script before the log write, losing the
+                # entire call's record over a feature that was never
+                # required in the first place.
+                try:
+                    result = save_vendor_recording(args.vendor, scratch_dir, call_start)
+                except Exception as e:  # noqa: BLE001 - see comment above
+                    result = {"saved": False, "path": None, "reason": f"unexpected error: {e!r}"}
+                print(f"vendor recording: {result}")
+                log_row["vendor_recording"] = result
+            else:
+                print("--save-vendor-recording ignored: no --vendor given, "
+                     "nothing to look up a recording from")
         # Written both ways: a self-contained copy next to this call's own
         # audio (survives even if --log is omitted or paths diverge later),
         # and appended to the shared --log for cheap cross-call aggregation
