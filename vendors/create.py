@@ -133,6 +133,15 @@ def retell_get_agent(agent_id: str) -> dict:
     return get_json(url, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
 
 
+def retell_update_agent(agent_id: str, fields: dict) -> dict:
+    """Partial update of an EXISTING agent (e.g. switching its language) -
+    PATCH on the same resource URL as get_endpoint, confirmed live."""
+    vcfg = load_vendor_config("retell")
+    api_key = _env(vcfg["auth"]["api_key_env"])
+    url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
+    return patch_json(url, fields, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
+
+
 def retell_delete_agent(agent_id: str, *, llm_id: str | None = None) -> None:
     vcfg = load_vendor_config("retell")
     api_key = _env(vcfg["auth"]["api_key_env"])
@@ -188,6 +197,16 @@ def elevenlabs_get_agent(agent_id: str) -> dict:
     api_key = _env(vcfg["auth"]["api_key_env"])
     url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
     return get_json(url, {"xi-api-key": api_key}, error_cls=VendorCreateError)
+
+
+def elevenlabs_update_agent(agent_id: str, fields: dict) -> dict:
+    """Partial update of an EXISTING agent - PATCH on the same resource URL
+    as get_endpoint, confirmed live (used earlier to add the read-back
+    prompt instruction via conversation_config.agent.prompt.prompt)."""
+    vcfg = load_vendor_config("elevenlabs")
+    api_key = _env(vcfg["auth"]["api_key_env"])
+    url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
+    return patch_json(url, fields, {"xi-api-key": api_key}, error_cls=VendorCreateError)
 
 
 def elevenlabs_delete_agent(agent_id: str) -> None:
@@ -309,6 +328,61 @@ def telnyx_delete_agent(agent_id: str) -> None:
     api_key = _env(vcfg["auth"]["api_key_env"])
     url = vcfg["create"]["delete_endpoint"].format(agent_id=agent_id)
     delete_json(url, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
+
+
+# --------------------------------------------------------------------------
+# set_agent_language - switches an EXISTING live test agent's own STT/LLM
+# language before a call, independent of agent creation. Confirmed live
+# (2026-10-16) that all three test agents were stuck on English regardless
+# of scripts/run_caller.py's --lang flag - that flag only ever controlled
+# the CALLER's own language (TTS, intent classification), never pushed
+# anything to the vendor side. Two real calls (hi-IN, es-ES against Telnyx)
+# were placed and scored against an English-configured assistant before
+# this was caught - their "degradation" findings are confounded, not
+# necessarily real vendor weakness, and should be re-run now that this
+# fixes the root cause rather than papering over one call at a time.
+# --------------------------------------------------------------------------
+
+_LANGUAGE_UPDATE_FIELDS = {
+    "retell": lambda code: {"language": code},
+    "elevenlabs": lambda code: {"conversation_config": {"agent": {"language": code}}},
+    "telnyx": lambda code: {"transcription": {"language": code}},
+}
+_LANGUAGE_UPDATERS = {
+    "retell": retell_update_agent,
+    "elevenlabs": elevenlabs_update_agent,
+    "telnyx": telnyx_update_agent,
+}
+
+
+def default_agent_id(vendor: str) -> str:
+    """The existing test agent/assistant each vendor's *.yaml dial config
+    already points at - telnyx's lives directly in dial.assistant_id;
+    retell/elevenlabs resolve it via their own agent_id_env, same place
+    vendors/loader.py's register_call dial method reads it from."""
+    vcfg = load_vendor_config(vendor)
+    if vendor == "telnyx":
+        return vcfg["dial"]["assistant_id"]
+    return _env(vcfg["auth"]["agent_id_env"])
+
+
+def set_agent_language(vendor: str, agent_id: str, bcp47_lang: str) -> dict:
+    """Resolves bcp47_lang to this vendor's own code/fallback (same table
+    vendors/languages.py already uses for dial-time recording) and pushes it
+    to the live agent. Returns the LanguageResolution dict plus whether the
+    update call ran (skipped when the resolved code is unchanged from
+    English-default - not needed here since every call always pushes, kept
+    simple and idempotent rather than diffing current state first)."""
+    vcfg = load_vendor_config(vendor)
+    lang = resolve_language(vcfg, bcp47_lang)
+    if lang.vendor_code is None:
+        raise VendorCreateError(
+            f"{vendor} has no language code or fallback for {bcp47_lang!r}: "
+            f"tried {lang.fallback_chain_tried}"
+        )
+    fields = _LANGUAGE_UPDATE_FIELDS[vendor](lang.vendor_code)
+    _LANGUAGE_UPDATERS[vendor](agent_id, fields)
+    return lang.as_dict()
 
 
 # --------------------------------------------------------------------------
