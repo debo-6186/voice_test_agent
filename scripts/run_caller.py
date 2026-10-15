@@ -41,6 +41,7 @@ from caller import intent  # noqa: E402
 from mock_agent import asr  # noqa: E402
 from vendors.loader import known_vendors, load_vendor_config, resolve_dial, VendorDialError  # noqa: E402
 from vendors.languages import resolve_language, LanguageResolutionError  # noqa: E402
+from vendors.recordings import save_vendor_recording  # noqa: E402
 
 
 def _load_condition(session_dir: str) -> dict:
@@ -95,6 +96,14 @@ def main() -> None:
                         "--vendor (e.g. LiveKit's agent-dispatch cold start "
                         "needs well over the plain default of 10.0s), else 10.0")
     p.add_argument("--log", default=None)
+    p.add_argument("--save-vendor-recording", action="store_true",
+                   help="also fetch and save the VENDOR's own call recording "
+                        "(separate from the agent audio we always record on our "
+                        "own leg for scoring) into the call's out/calls/<call_id>/ "
+                        "directory, as vendor_recording.{wav,mp3}. Opt-in: an extra "
+                        "vendor API round trip per call, only implemented for "
+                        "retell/elevenlabs/telnyx (vendors/recordings.py) - a "
+                        "best-effort archival copy, not required for scoring.")
     args = p.parse_args()
 
     if not args.uri and not args.vendor:
@@ -193,6 +202,26 @@ def main() -> None:
         }
         if vendor_language:
             log_row["vendor_language"] = vendor_language
+
+        if args.save_vendor_recording:
+            if args.vendor:
+                print(f"fetching {args.vendor}'s own call recording...")
+                # Best-effort only - this is an opt-in archival convenience,
+                # never allowed to stop call_log.json (the primary artifact,
+                # written right below) from being written. Confirmed live
+                # this matters: an unhandled VendorHTTPError here previously
+                # crashed the whole script before the log write, losing the
+                # entire call's record over a feature that was never
+                # required in the first place.
+                try:
+                    result = save_vendor_recording(args.vendor, scratch_dir, call_start)
+                except Exception as e:  # noqa: BLE001 - see comment above
+                    result = {"saved": False, "path": None, "reason": f"unexpected error: {e!r}"}
+                print(f"vendor recording: {result}")
+                log_row["vendor_recording"] = result
+            else:
+                print("--save-vendor-recording ignored: no --vendor given, "
+                     "nothing to look up a recording from")
         # Written both ways: a self-contained copy next to this call's own
         # audio (survives even if --log is omitted or paths diverge later),
         # and appended to the shared --log for cheap cross-call aggregation
