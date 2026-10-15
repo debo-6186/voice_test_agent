@@ -8,8 +8,8 @@ instrument's own error bars so anyone can re-mark the results.
 | | |
 |---|---|
 | Languages | 5 — `en-US`, `en-SG`, `hi-IN`, `es-ES`, `id-ID` |
-| Vendors | 7 — Retell, Vapi, ElevenLabs, Bland, LiveKit, Telnyx, Pipecat |
-| Matrix | 6,300 calls |
+| Vendors | 4 — Retell, ElevenLabs, LiveKit, Telnyx (Vapi, Bland, Pipecat descoped 2026-10-14) |
+| Matrix | 3,600 calls |
 | Wall clock | ~2.3 h (parallel vendor tracks) |
 | Telephony cost | $0 (direct SIP) |
 | Build | ~17 weeks |
@@ -111,33 +111,31 @@ Key constraint: **offer PCMU only in the SDP.** One codec, every vendor, every c
 
 ## 5. Scale
 
-The instinct that 6,300 calls is a months-long endeavour assumes serial dialling.
+The instinct that 3,600 calls is a months-long endeavour assumes serial dialling.
 Concurrency is the lever; vendor tracks run in parallel; wall clock is set by the
 slowest track, not the sum.
 
 | Vendor track | Concurrency | 900 calls |
 |---|---|---|
 | Retell (burst) | 60 | 0.4 h |
-| Bland Build | 50 | 0.5 h |
 | ElevenLabs Scale | 30 | 0.8 h |
 | Retell (default) | 20 | 1.1 h |
 | LiveKit Ship | 20 | 1.1 h |
-| Vapi + 10 lines | 10 | 2.3 h |
 | Telnyx (L2 verified) | 10 | 2.3 h |
 
-**Full matrix wall clock ≈ 2.3 hours**, bounded by the Vapi and Telnyx tracks.
-Nightly CI is realistic.
+**Full matrix wall clock ≈ 2.3 hours**, bounded by the Telnyx track alone now that
+Vapi is out of scope. Nightly CI is realistic.
 
 ### Cost
 
 | Item | |
 |---|---|
-| Vendor fees | 9,450 min × $0.07–0.31 = **$660 – $2,930** |
+| Vendor fees | 5,400 min × $0.07–0.31 = **$380 – $1,675** |
 | Telephony | **$0** — direct SIP |
-| Referee ASR | 315 audio-h. Groq batch ≈ $13; self-hosted faster-whisper ≈ 6.3 GPU-h ≈ $9 |
+| Referee ASR | 180 audio-h. Groq batch ≈ $7; self-hosted faster-whisper ≈ 3.6 GPU-h ≈ $5 |
 | TTS corpus | one-off, < $100 |
-| Plan tiers | Bland Build $299 + LiveKit Ship $50 + Vapi lines $100 + ElevenLabs Scale $299 |
-| **Total** | **≈ $1,500 – $4,000 per full published run** |
+| Plan tiers | LiveKit Ship $50 + ElevenLabs Scale $299 |
+| **Total** | **≈ $900 – $2,300 per full published run** |
 
 Billing traps that silently break an automated run: `docs/vendors.md`.
 
@@ -228,9 +226,9 @@ buffer, and Gilbert-Elliott sampling variance on short utterances).
 |---|---|---|---|
 | Spanish | `es-ES` | Control — lowest referee error | Universal |
 | English (US) | `en-US` | Anchor — comparable prior results | Universal |
-| Hindi | `hi-IN` | Finding + hard case; Hinglish code-switch | Bland has `hi-Latn`; others `hi` only |
-| Bahasa Indonesia | `id-ID` | Finding — zero coverage anywhere | Telnyx undocumented |
-| English (Singapore) | `en-SG` | Finding — accent + Singlish | **7/8 vendors have no `en-SG`** |
+| Hindi | `hi-IN` | Finding + hard case | All four vendors support plain `hi`/`hi-IN` |
+| Bahasa Indonesia | `id-ID` | Finding — zero coverage anywhere | Telnyx confirmed unsupported live (its default transcription model's language list has no `id`) |
+| English (Singapore) | `en-SG` | Finding — accent + Singlish | **No vendor documents `en-SG`** — confirmed live to fall back to `en-US` on Retell/ElevenLabs/Telnyx |
 
 ### Scenarios
 
@@ -375,9 +373,9 @@ produces a shareable artifact**, and each one de-risks the next.
 
 ### Phase 0 — Spike (week 1, KILL GATE)
 
-**Day 1, before anything else:** file the Telnyx Level 2 verification, request Bland's
-SIP entitlement, and request the Pipecat concurrency increase. All three are human
-reviews with lead time and will otherwise become the critical path in week 15.
+**Day 1, before anything else:** file the Telnyx Level 2 verification (raises
+concurrency from 2 to 10) - a human review with lead time that will otherwise become
+the critical path in week 15.
 
 Then: native-speaker review of 20 ElevenLabs utterances per language; benchmark 3
 referee ASRs per language, clean and at 10 dB; verify the ElevenLabs
@@ -449,9 +447,9 @@ canonical path matching, adaptive fallback at temperature 0, divergence logging.
 
 ### Phase 7 — Vendor adapters (weeks 15–16)
 
-Canonical config to 7 adapters. Voice-mapping table, language-code translation,
+Canonical config to 4 adapters. Voice-mapping table, language-code translation,
 per-vendor language-fallback recording. Exponential backoff and 429 instrumentation
-from day one — four vendors publish no rate limits.
+from day one — half our vendors (Retell, ElevenLabs) publish no rate limits.
 
 ### Phase 8 — Referees, scoring, statistics (weeks 17–18)
 
@@ -469,7 +467,7 @@ cannot be positioned to bracket the range.
 
 ### Phase 10 — Full run and publish (weeks 20–22)
 
-6,300 calls across parallel vendor tracks (~2.3 h wall clock). Human verification
+3,600 calls across parallel vendor tracks (~2.3 h wall clock). Human verification
 sample, far-end SNR calibration, discarded turns logged with reasons. Hugging Face
 dataset, repo with `verify.py`, static leaderboard, arXiv preprint, one blog post
 built around one number.
@@ -529,10 +527,10 @@ artifact, not the goal.
 |---|---|---|
 | Run-to-run variance swamps the effect | Biggest scientific risk | Paired design (2.5× power), 3 repeats, cluster bootstrap, pass^k amplification, Phase 6 gate |
 | Referee degrades faster than the agent at low SNR | Likely at 0–5 dB | Truncation rule, dual referees, human-labelled sample, score from agent's clean side |
-| Singapore English has no vendor support | **Confirmed — 7 of 8** | Record fallback per call; publish as a finding |
+| Singapore English has no vendor support | **Confirmed — all 4** | Record fallback per call (now live-verified, not just planned); publish as a finding |
 | PJSIP stops at 32 concurrent calls | Will happen if only MAX_CALLS is raised | Full `config_site.h`, process sharding, `setNullDev()` |
-| Manual approval gates become critical path | Avoidable | File Telnyx L2, Bland SIP entitlement, Pipecat concurrency on day one |
-| Synthflow unobtainable | **Confirmed** — $30k/yr floor, self-serve removed 2026-09-15 | Run seven vendors; state why the eighth is absent |
+| Manual approval gates become critical path | Avoidable | File Telnyx L2 verification on day one |
+| Synthflow unobtainable | **Confirmed** — $30k/yr floor, self-serve removed 2026-09-15 | Run four vendors; state why Synthflow (and, since 2026-10-14, Vapi/Bland/Pipecat) are absent |
 | Vendor SIP and pricing change | Certain | Versioned config with per-run verification |
 | A vendor disputes the results | Certain, if the work lands | The good outcome — shipped corpus + `verify.py` make the argument about the result, not the method |
 

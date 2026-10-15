@@ -15,24 +15,32 @@ only happens when the caller dials the returned URI.
 """
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
 
 import yaml
+
+from vendors.http import VendorHTTPError, env as _http_env, get_json as _http_get_json, \
+    post_json as _http_post_json
 
 VENDORS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-class VendorDialError(RuntimeError):
+class VendorDialError(VendorHTTPError):
     pass
 
 
 def known_vendors() -> list[str]:
-    return sorted(
-        fn[:-5] for fn in os.listdir(VENDORS_DIR) if fn.endswith(".yaml")
-    )
+    """Every vendors/*.yaml that declares a top-level vendor: key - excludes
+    non-vendor config like vendors/voices.yaml (the cross-vendor voice table,
+    keyed by voice_key then vendor, not itself a vendor)."""
+    names = []
+    for fn in os.listdir(VENDORS_DIR):
+        if not fn.endswith(".yaml"):
+            continue
+        with open(os.path.join(VENDORS_DIR, fn), encoding="utf-8") as f:
+            if yaml.safe_load(f).get("vendor"):
+                names.append(fn[:-5])
+    return sorted(names)
 
 
 def load_vendor_config(vendor: str) -> dict:
@@ -44,39 +52,27 @@ def load_vendor_config(vendor: str) -> dict:
 
 
 def _env(name: str) -> str:
-    val = os.environ.get(name)
-    if not val:
-        raise VendorDialError(f"{name} must be set in the environment")
-    return val
+    try:
+        return _http_env(name)
+    except VendorHTTPError as e:
+        raise VendorDialError(str(e)) from e
 
 
 def _post_json(url: str, body: dict, headers: dict) -> dict:
-    req = urllib.request.Request(
-        url, data=json.dumps(body).encode(),
-        headers={**headers, "Content-Type": "application/json"}, method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        raise VendorDialError(f"POST {url} failed: HTTP {e.code}: "
-                              f"{e.read().decode(errors='replace')}") from e
+    return _http_post_json(url, body, headers, error_cls=VendorDialError)
 
 
 def _get_json(url: str, headers: dict) -> dict:
-    req = urllib.request.Request(url, headers=headers, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        raise VendorDialError(f"GET {url} failed: HTTP {e.code}: "
-                              f"{e.read().decode(errors='replace')}") from e
+    return _http_get_json(url, headers, error_cls=VendorDialError)
 
 
 def resolve_dial(vendor: str) -> dict:
     """Returns {"uri", "sip_auth_user", "sip_auth_pass", "connect_timeout_s"}."""
     cfg = load_vendor_config(vendor)
-    dial = cfg["dial"]
+    dial = cfg.get("dial")
+    if dial is None:
+        reason = cfg.get("dial_unsupported_reason", "no dial mechanism documented for this vendor")
+        raise VendorDialError(f"{vendor}: dialling not supported - {reason}")
     method = dial["method"]
     auth_cfg = cfg.get("auth", {})
     connect_timeout_s = float(cfg.get("connect_timeout_s", 10.0))

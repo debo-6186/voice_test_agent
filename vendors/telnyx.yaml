@@ -42,3 +42,48 @@ notes: >
   own API record, not the Connections page (which only shows generic SIP/
   voice connections, not AI Assistant calls - those are a separate
   record_type=ai-voice-assistant CDR category entirely).
+
+# Phase 7 - agent creation. LIVE-VERIFIED 2026-10-14 using the native voice
+# path (scripts/verify_vendor_adapters.py --vendor telnyx - full create/get/
+# delete round trip, name/language/voice all confirmed to round-trip).
+# Also supports BYOK ElevenLabs voices (voice format
+# "elevenlabs.<model>.<VoiceId>" + an api_key_ref integration secret, both
+# creatable via API) - written and wired per Telnyx's own docs, but a real
+# create call 400'd even with the secret's correct UUID id as api_key_ref
+# ("Voice settings API key ... not found"). Telnyx's own ElevenLabs
+# integration docs note a premium ElevenLabs account is required (freemium
+# not supported) - plausible but unconfirmed root cause. See
+# vendors/create.py's telnyx_create_agent(use_byok_voice=...) docstring -
+# defaults to the native voice until this is resolved.
+create:
+  endpoint: "https://api.telnyx.com/v2/ai/assistants"
+  get_endpoint: "https://api.telnyx.com/v2/ai/assistants/{agent_id}"
+  delete_endpoint: "https://api.telnyx.com/v2/ai/assistants/{agent_id}"
+  voice_field_path: "voice_settings.voice"   # confirmed live - see
+                                              # "Telnyx.Ultra.f786b574-..." on
+                                              # the real existing assistant
+  # CONFIRMED LIVE (2026-10-14): the default transcription model
+  # (deepgram/flux) requires a BARE ISO-639 code, not a BCP-47 region
+  # variant - a live create call with "en-US" 400'd with "language must be
+  # one of: auto, de, en, es, fr, hi, it, ja, multi, nl, pt, ru. Got: en-US".
+  # That same list also CONFIRMS id-ID (Indonesian) is simply absent from
+  # deepgram/flux's supported languages - not merely undocumented as
+  # previously noted, genuinely unsupported by this transcription model.
+  # A different transcription.model (among Telnyx's 14 options, per
+  # docs/vendors.md) might support it - not probed yet, left as a fallback
+  # gap rather than guessed.
+  languages:
+    en-US: {code: "en"}
+    en-SG: {code: null, fallback: ["en-US"]}
+    hi-IN: {code: "hi"}
+    es-ES: {code: "es"}
+    id-ID: {code: null, fallback: []}   # genuinely unsupported by
+                                        # deepgram/flux - see comment above
+  transcription:
+    model_field_path: "transcription.model"
+    language_field_path: "transcription.language"
+    default_model: "deepgram/flux"   # confirmed live as the create endpoint's
+                                      # own default when transcription.model
+                                      # is omitted
+    id_ID_model: null   # which (if any) of the other 13 transcription.model
+                        # options supports Indonesian - not probed yet

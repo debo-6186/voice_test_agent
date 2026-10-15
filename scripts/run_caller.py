@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import time
+import uuid
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -38,7 +39,8 @@ from sip_probe.account import make_account, make_endpoint  # noqa: E402
 from caller.call import CallerCall, run_call  # noqa: E402
 from caller import intent  # noqa: E402
 from mock_agent import asr  # noqa: E402
-from vendors.loader import known_vendors, resolve_dial, VendorDialError  # noqa: E402
+from vendors.loader import known_vendors, load_vendor_config, resolve_dial, VendorDialError  # noqa: E402
+from vendors.languages import resolve_language, LanguageResolutionError  # noqa: E402
 
 
 def _load_condition(session_dir: str) -> dict:
@@ -134,6 +136,17 @@ def main() -> None:
         except VendorDialError as e:
             sys.exit(f"vendor dial resolution failed: {e}")
 
+    # Independent of whether an agent was created via vendors/create.py -
+    # this is about what language we're asking an existing vendor agent to
+    # operate in, and whether it had to fall back (docs/vendors.md: "record
+    # which fallback each vendor used, per call, in the manifest").
+    vendor_language = None
+    if args.vendor:
+        try:
+            vendor_language = resolve_language(load_vendor_config(args.vendor), args.lang).as_dict()
+        except LanguageResolutionError as e:
+            print(f"vendor_language not recorded: {e}")
+
     uri = args.uri or vendor_resolved["uri"]
     sip_auth_user = args.sip_auth_user or (vendor_resolved and vendor_resolved["sip_auth_user"])
     sip_auth_pass = args.sip_auth_pass or (vendor_resolved and vendor_resolved["sip_auth_pass"])
@@ -146,15 +159,22 @@ def main() -> None:
     print(f"dialing {uri} ...")
     call.makeCall(uri, pj.CallOpParam(True))
 
+    # Unique per call - out/caller_scratch was a FIXED path, silently
+    # overwritten by every new call (no raw audio ever survived past the
+    # most recent one). Phase 8's referee scoring needs that audio to still
+    # exist after the call, so every call now gets its own directory.
+    call_id = f"call-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+
     try:
-        start = time.time()
+        call_start = time.time()
+        start = call_start
         while time.time() - start < connect_timeout_s and not call.media_active:
             ep.libHandleEvents(100)
         if not call.media_active:
             sys.exit("call did not reach media-active state")
         print("call connected, media active")
 
-        scratch_dir = os.path.join(REPO_ROOT, "out", "caller_scratch")
+        scratch_dir = os.path.join(REPO_ROOT, "out", "calls", call_id)
         turn_log = run_call(
             ep, call, turns_def, args.lang, lang_meta, args.tts, condition,
             scratch_dir, max_turn_listen_s=args.max_listen_s, asr_model=args.asr_model,
@@ -166,9 +186,22 @@ def main() -> None:
             ep.libHandleEvents(100)
 
         print(json.dumps(turn_log, indent=2, ensure_ascii=False))
+        log_row = {
+            "call_id": call_id, "scenario": args.scenario, "lang": args.lang,
+            "vendor": args.vendor or "direct_uri", "tts": args.tts, "condition": condition,
+            "duration_s": round(time.time() - call_start, 2), "turns": turn_log,
+        }
+        if vendor_language:
+            log_row["vendor_language"] = vendor_language
+        # Written both ways: a self-contained copy next to this call's own
+        # audio (survives even if --log is omitted or paths diverge later),
+        # and appended to the shared --log for cheap cross-call aggregation
+        # without globbing every out/calls/* directory.
+        with open(os.path.join(scratch_dir, "call_log.json"), "w", encoding="utf-8") as f:
+            json.dump(log_row, f, ensure_ascii=False, indent=2)
         if args.log:
             with open(args.log, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"turns": turn_log}, ensure_ascii=False) + "\n")
+                f.write(json.dumps(log_row, ensure_ascii=False) + "\n")
     finally:
         del call
         del acc

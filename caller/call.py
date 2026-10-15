@@ -85,6 +85,8 @@ def _react(agent_text: str, i: int, state: CallerState, lang: str, lang_meta: di
         "action": action.kind, "divergence": action.divergence,
         "divergence_reason": action.divergence_reason,
     }
+    if action.field:
+        row["field"] = action.field
 
     if action.kind == "wait":
         return row, None
@@ -164,7 +166,7 @@ def run_call(ep, call: CallerCall, turns_def: list[dict], lang: str, lang_meta: 
         state.collected[first_turn["field"]] = True
         state.last_played_turn = first_turn
         turn_log.append({"i": -1, "action": "play_canonical", "opening": True,
-                         "reply_text": first_turn["text"][lang]})
+                         "field": first_turn["field"], "reply_text": first_turn["text"][lang]})
         reply_path = first_turn["_wav_path"]
 
     for i in range(max_turns):
