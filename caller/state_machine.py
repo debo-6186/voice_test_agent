@@ -19,6 +19,9 @@ class Action:
     utility_key: str | None = None      # caller/utility.py key, for play_utility
     divergence: bool = False
     divergence_reason: str | None = None
+    field: str | None = None            # which scenario field this turn addressed, for
+                                        # play_canonical only - referee scoring (Phase 8)
+                                        # needs to know which entity a turn was about
 
 
 @dataclass
@@ -107,4 +110,4 @@ class CallerState:
 
         self.collected[field_name] = True
         self.last_played_turn = turn
-        return Action("play_canonical", turn=turn)
+        return Action("play_canonical", turn=turn, field=field_name)

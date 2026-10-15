@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import time
+import uuid
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -158,15 +159,22 @@ def main() -> None:
     print(f"dialing {uri} ...")
     call.makeCall(uri, pj.CallOpParam(True))
 
+    # Unique per call - out/caller_scratch was a FIXED path, silently
+    # overwritten by every new call (no raw audio ever survived past the
+    # most recent one). Phase 8's referee scoring needs that audio to still
+    # exist after the call, so every call now gets its own directory.
+    call_id = f"call-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+
     try:
-        start = time.time()
+        call_start = time.time()
+        start = call_start
         while time.time() - start < connect_timeout_s and not call.media_active:
             ep.libHandleEvents(100)
         if not call.media_active:
             sys.exit("call did not reach media-active state")
         print("call connected, media active")
 
-        scratch_dir = os.path.join(REPO_ROOT, "out", "caller_scratch")
+        scratch_dir = os.path.join(REPO_ROOT, "out", "calls", call_id)
         turn_log = run_call(
             ep, call, turns_def, args.lang, lang_meta, args.tts, condition,
             scratch_dir, max_turn_listen_s=args.max_listen_s, asr_model=args.asr_model,
@@ -178,10 +186,20 @@ def main() -> None:
             ep.libHandleEvents(100)
 
         print(json.dumps(turn_log, indent=2, ensure_ascii=False))
+        log_row = {
+            "call_id": call_id, "scenario": args.scenario, "lang": args.lang,
+            "vendor": args.vendor or "direct_uri", "tts": args.tts, "condition": condition,
+            "duration_s": round(time.time() - call_start, 2), "turns": turn_log,
+        }
+        if vendor_language:
+            log_row["vendor_language"] = vendor_language
+        # Written both ways: a self-contained copy next to this call's own
+        # audio (survives even if --log is omitted or paths diverge later),
+        # and appended to the shared --log for cheap cross-call aggregation
+        # without globbing every out/calls/* directory.
+        with open(os.path.join(scratch_dir, "call_log.json"), "w", encoding="utf-8") as f:
+            json.dump(log_row, f, ensure_ascii=False, indent=2)
         if args.log:
-            log_row = {"turns": turn_log}
-            if vendor_language:
-                log_row["vendor_language"] = vendor_language
             with open(args.log, "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_row, ensure_ascii=False) + "\n")
     finally:

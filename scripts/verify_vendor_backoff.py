@@ -13,6 +13,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import urllib.error
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -101,10 +102,65 @@ def test_non_429_fails_immediately():
     print("test_non_429_fails_immediately: PASS")
 
 
+def test_transient_network_error_retries_then_succeeds():
+    """The actual bug this was written to catch: a single timeout/connection
+    blip on a real referee-scoring run crashed the whole run (only HTTP 429
+    was retried before). Confirms a TimeoutError now retries the same way."""
+    call_count = {"n": 0}
+
+    def _fake(req, timeout=15):
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            raise TimeoutError("The read operation timed out")
+        return _FakeResponse(json.dumps({"ok": True}).encode())
+
+    real_urlopen = http.urllib.request.urlopen
+    http.urllib.request.urlopen = _fake
+    try:
+        body, events = http.request_json(
+            "GET", "https://example.test/x", {}, base_delay_s=0.01,
+            max_delay_s=0.02, _sleep=lambda s: None,
+        )
+    finally:
+        http.urllib.request.urlopen = real_urlopen
+
+    assert body == {"ok": True}, f"expected success body, got {body}"
+    assert len(events) == 2, f"expected 2 retry events, got {len(events)}: {events}"
+    assert all(e["status"] is None and "reason" in e for e in events)
+    print("test_transient_network_error_retries_then_succeeds: PASS")
+
+
+def test_post_multipart_retries_then_succeeds():
+    """referee/groq_asr.py's audio-upload path uses the same retry core via
+    post_multipart() - confirm the multipart encoder + retry loop work
+    together with no live network call."""
+    real_urlopen = http.urllib.request.urlopen
+    http.urllib.request.urlopen = _canned_urlopen([429, {"text": "hello world"}])
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"RIFF....WAVEfake")
+            wav_path = f.name
+        try:
+            result = http.post_multipart(
+                "https://example.test/transcriptions",
+                {"model": "whisper-large-v3", "language": "en"}, "file", wav_path, {},
+                base_delay_s=0.01, max_delay_s=0.02, _sleep=lambda s: None,
+            )
+        finally:
+            os.unlink(wav_path)
+    finally:
+        http.urllib.request.urlopen = real_urlopen
+
+    assert result == {"text": "hello world"}, f"expected transcript body, got {result}"
+    print("test_post_multipart_retries_then_succeeds: PASS")
+
+
 def main() -> None:
     test_retries_then_succeeds()
     test_retries_exhausted()
     test_non_429_fails_immediately()
+    test_transient_network_error_retries_then_succeeds()
+    test_post_multipart_retries_then_succeeds()
     print("all backoff/429 tests passed")
 
 

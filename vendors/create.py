@@ -24,7 +24,7 @@ import os
 import yaml
 
 from vendors.canonical import CanonicalAgentConfig
-from vendors.http import VendorHTTPError, env, get_json, post_json, delete_json
+from vendors.http import VendorHTTPError, env, get_json, post_json, patch_json, delete_json
 from vendors.languages import resolve_language
 from vendors.loader import VENDORS_DIR, load_vendor_config
 
@@ -291,6 +291,17 @@ def telnyx_get_agent(agent_id: str) -> dict:
     api_key = _env(vcfg["auth"]["api_key_env"])
     url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
     return get_json(url, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
+
+
+def telnyx_update_agent(agent_id: str, fields: dict) -> dict:
+    """Partial update of an EXISTING assistant (e.g. editing instructions on
+    the project's own test agent) - distinct from create/get/delete, which
+    the three-vendor adapter contract above doesn't otherwise need. PATCH on
+    the same resource URL as get_endpoint, confirmed live."""
+    vcfg = load_vendor_config("telnyx")
+    api_key = _env(vcfg["auth"]["api_key_env"])
+    url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
+    return patch_json(url, fields, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
 
 
 def telnyx_delete_agent(agent_id: str) -> None:
