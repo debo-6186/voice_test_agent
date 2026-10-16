@@ -41,35 +41,54 @@ def match_phone(normalized_text: str, expected: dict) -> tuple[bool, str]:
     return False, "digits_exact"
 
 
+def _name_tokens_present(text_words: list[str], name_value: str) -> set[str]:
+    """Which of name_value's own tokens (e.g. "rachel", "hoffman") appear as
+    a close fuzzy match to some SINGLE word in the text. Word-for-word, not
+    a multi-word sliding window compared character-by-character against the
+    whole candidate - that approach (the previous version of this function)
+    let unrelated NEIGHBORING words inflate the ratio by raw character
+    overlap: "rachel and" scored exactly 0.75 against "rachel hoffman" on a
+    real referee transcript that never said "Hoffman" at all, a confirmed
+    false positive on 13 of 15 real pilot calls, not a coincidence worth
+    keeping."""
+    present = set()
+    for tok in name_value.lower().split():
+        if any(difflib.SequenceMatcher(None, tok, w).ratio() >= NAME_MATCH_THRESHOLD
+              for w in text_words):
+            present.add(tok)
+    return present
+
+
 def match_name(normalized_text: str, expected: dict) -> tuple[bool, str, str | None]:
-    """Returns (matched, method, matched_script)."""
-    text_lower = normalized_text.lower()
+    """Returns (matched, method, matched_script). Deliberately accepts a
+    first-name-only read-back as a match ("first_name_only") - real agents
+    commonly echo back only the first name in natural conversation; that's
+    not a defect to score against. A full match (every name token found)
+    is still recorded as such, so a scores.jsonl reader can tell the two
+    apart rather than treating every name match as equally complete."""
+    text_words = normalized_text.lower().split()
 
-    def _ratio(candidate: str) -> float:
-        return difflib.SequenceMatcher(None, candidate.lower(), text_lower).ratio()
+    def _check(name_value: str) -> str | None:
+        tokens = name_value.lower().split()
+        if not tokens:
+            return None
+        present = _name_tokens_present(text_words, name_value)
+        if len(present) == len(tokens):
+            return "full_name"
+        if tokens[0] in present:
+            return "first_name_only"
+        return None
 
-    # SequenceMatcher.ratio() compares the WHOLE text, which punishes a short
-    # name against a long surrounding sentence - find the best-matching
-    # contiguous window of the name's own length instead.
-    def _best_window_ratio(candidate: str) -> float:
-        words = text_lower.split()
-        n = max(1, len(candidate.split()))
-        if len(words) <= n:
-            return _ratio(candidate)
-        best = 0.0
-        for i in range(len(words) - n + 1):
-            window = " ".join(words[i:i + n])
-            best = max(best, difflib.SequenceMatcher(None, candidate.lower(), window).ratio())
-        return best
+    label = _check(expected["value"])
+    matched_script = "devanagari" if (label and "romanised" in expected) else None
+    if label is None and "romanised" in expected:
+        label = _check(expected["romanised"])
+        if label is not None:
+            matched_script = "romanised"
 
-    best_ratio = _best_window_ratio(expected["value"])
-    best_script = "devanagari" if "romanised" in expected else None
-    if "romanised" in expected:
-        romanised_ratio = _best_window_ratio(expected["romanised"])
-        if romanised_ratio > best_ratio:
-            best_ratio, best_script = romanised_ratio, "romanised"
-
-    return best_ratio >= NAME_MATCH_THRESHOLD, "fuzzy_ratio", best_script
+    if label is None:
+        return False, "fuzzy_ratio", None
+    return True, f"fuzzy_ratio_{label}", matched_script
 
 
 def match_entity(field_type: str, raw_text: str, normalized_text: str, lang: str,
