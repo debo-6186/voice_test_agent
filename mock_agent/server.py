@@ -22,7 +22,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def run_mock_agent(port: int, scenario_id: str, lang: str, tts: str = "espeak",
                    asr_error_rate: float = 0.0, repair_threshold: float = 0.0,
                    silent_error_rate: float = 0.0, max_turn_listen_s: float = 15.0,
-                   asr_model: str = "tiny", seed: int = 0,
+                   asr_model: str = "tiny", asr_backend: str = "local", seed: int = 0,
                    scratch_dir: str | None = None,
                    log_path: str | None = None, max_calls: int | None = None) -> None:
     from mock_agent.call import run_conversation
@@ -62,7 +62,7 @@ def run_mock_agent(port: int, scenario_id: str, lang: str, tts: str = "espeak",
                 ep, call, scenario_id, lang, lang_meta, tts, rng,
                 asr_error_rate, repair_threshold, silent_error_rate,
                 scratch_dir=scratch_dir, max_turn_listen_s=max_turn_listen_s,
-                asr_model=asr_model,
+                asr_model=asr_model, asr_backend=asr_backend,
             )
             print(f"call {n_calls} finished: {json.dumps(turn_log, ensure_ascii=False)}")
             if log_path:

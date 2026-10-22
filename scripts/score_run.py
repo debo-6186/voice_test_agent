@@ -70,10 +70,13 @@ def main() -> None:
                 continue
 
             scenario_turns = scfg["scenarios"][call_log["scenario"]]["turns"]
-            call_log = dict(call_log)
-            call_log["turns"] = transcribe_call(call_dir, call_log["turns"], call_log["lang"])
+            segments = transcribe_call(call_dir, call_log["lang"])
+            if segments is None:
+                print(f"note: {call_id} has no _full_call.wav (predates the continuous "
+                     f"recorder) - every field will score as no_continuous_recording",
+                     file=sys.stderr)
 
-            result = score_call(call_log, scenario_turns)
+            result = score_call(call_log, scenario_turns, segments)
             results.append(result)
 
             with open(os.path.join(call_dir, "score.json"), "w", encoding="utf-8") as f:

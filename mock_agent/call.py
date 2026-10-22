@@ -33,6 +33,25 @@ class MockAgentCall(pj.Call):
         # GC'ing a wrapper while PJSIP still holds the port is a segfault.
         self.player: Optional[pj.AudioMediaPlayer] = None
         self.recorder: Optional[pj.AudioMediaRecorder] = None
+        # A second, independent recorder spanning the WHOLE call, referee-
+        # scoring only - never torn down between turns the way self.recorder
+        # is. Owned the same way: a long-lived reference here plus a local
+        # reference in caller/call.py::run_call() for its whole lifetime.
+        # AGENT AUDIO ONLY (tapped from call.audio_media(), same as
+        # self.recorder) - never mix the caller's own TTS into this one.
+        # Scoring searches this file's transcript for entity preservation;
+        # if the caller's own scripted lines (which already contain the
+        # correct name/phone/date) were in it too, every field would look
+        # "preserved" regardless of whether the agent ever actually said it
+        # back - the exact thing this check exists to catch.
+        self.full_recorder: Optional[pj.AudioMediaRecorder] = None
+        # A THIRD, separate recorder - BOTH sides mixed, for a human to
+        # listen to the whole conversation. Never read by scoring. Exists
+        # only because self.full_recorder deliberately excludes the caller's
+        # side, so there was otherwise nothing to listen to and compare the
+        # agent's response against without already trusting the ground
+        # truth text.
+        self.mix_recorder: Optional[pj.AudioMediaRecorder] = None
 
     def onCallState(self, prm):  # noqa: N802 - PJSUA2 callback naming
         ci = self.getInfo()
@@ -41,6 +60,8 @@ class MockAgentCall(pj.Call):
             self.disconnect_reason = ci.lastReason
             self.player = None
             self.recorder = None
+            self.full_recorder = None
+            self.mix_recorder = None
 
     def onCallMediaState(self, prm):  # noqa: N802 - PJSUA2 callback naming
         ci = self.getInfo()
@@ -126,7 +147,7 @@ def listen_for_turn(ep: pj.Endpoint, call: MockAgentCall, scratch_wav: str,
 def speak_and_listen(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, scratch_wav: str,
                      max_wait_s: float = 20.0, max_listen_s: float = 15.0, poll_ms: int = 100,
                      silence_floor: float = 0.01, speech_floor: float = 0.02,
-                     silence_s: float = 0.7) -> tuple[str, bool]:
+                     silence_s: float = 0.7, pre_play_wait_s: float = 3.0) -> tuple[str, bool]:
     """Plays wav_path while SIMULTANEOUSLY listening on the recorder, so a
     far-end barge-in is captured from its actual start instead of being
     clipped. Returns (scratch_wav, heard_speech) - same contract as
@@ -147,6 +168,36 @@ def speak_and_listen(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, scratc
     the other side while you talk without hearing your own echo. Recording
     from the former while transmitting to the latter are independent paths
     on the same conference port.
+
+    When call.mix_recorder is set (caller/call.py's continuous, whole-call,
+    human-listening-only recorder), the player ALSO transmits into it, same
+    as it transmits into the live call - the conference bridge mixes
+    multiple sources into one sink, so `_full_call_both_sides.wav` ends up
+    with BOTH sides audible together, a normal-sounding two-way recording.
+    call.full_recorder (scoring's own continuous recorder) is NEVER given
+    the player - it stays agent-audio-only, same as self.recorder always
+    was. Mixing the caller's own scripted lines into the scoring file would
+    make every field look "preserved" regardless of whether the agent ever
+    actually said it back, since the caller's lines already contain the
+    correct name/phone/date - exactly the failure this check exists to
+    catch, not something to reintroduce for the sake of a listening copy.
+
+    Before starting playback, waits (up to pre_play_wait_s) for the far end
+    to go quiet if it's already mid-utterance. Confirmed live this matters:
+    by the time our own reply is ready to play (after classify + TTS +
+    degrade latency, several seconds after we decided what to say), the
+    agent can have resumed talking - e.g. a second, redundant confirmation
+    - with nothing checking for that before we commit to play. The result
+    was ~10s of both sides talking at once, and the agent's own readback
+    trailing off mid-number. Deliberately a WAIT-before-starting, not a
+    stop-once-started: interrupting our OWN playback mid-sentence based on
+    the same imperfect RMS speech detector would risk truncating our own
+    scripted content on a false positive (most likely exactly in the noisy
+    conditions this benchmark tests) - worse than the problem being fixed,
+    since that content's correctness is otherwise guaranteed. Waiting
+    instead only ever costs latency, never content; capped and fails open
+    so a channel that never reads as quiet (sustained noise) can't stall
+    the call indefinitely.
     """
     if call.last_state == "DISCONNECTED":
         return scratch_wav, False
@@ -165,6 +216,20 @@ def speak_and_listen(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, scratc
         return scratch_wav, False
     call.recorder = recorder
 
+    # Pre-play check: if the far end is ALREADY mid-utterance (speech
+    # detected right now), wait for it to quiet down before we start
+    # talking over it - see this function's own docstring for why this is
+    # a wait-before-starting, not an interrupt-once-started. Bounded and
+    # fails open: never blocks longer than pre_play_wait_s even if the
+    # channel never reads as quiet.
+    pre_wait_offset = WAV_HEADER_BYTES
+    pre_wait_start = time.time()
+    while time.time() - pre_wait_start < pre_play_wait_s and call.last_state != "DISCONNECTED":
+        ep.libHandleEvents(poll_ms)
+        rms, pre_wait_offset = _read_new_rms(scratch_wav, pre_wait_offset)
+        if rms < speech_floor:
+            break
+
     player = pj.AudioMediaPlayer()
     player.createPlayer(wav_path, pj.PJMEDIA_FILE_NO_LOOP)
     call.player = player
@@ -176,12 +241,22 @@ def speak_and_listen(ep: pj.Endpoint, call: MockAgentCall, wav_path: str, scratc
         call.recorder = None
         del recorder
         return scratch_wav, False
+    if call.mix_recorder is not None:
+        try:
+            player.startTransmit(call.mix_recorder)
+        except pj.Error:
+            pass   # best-effort for the human-listening mix only - never
+                   # let this break the real call, which is already connected
 
     import wave
     with wave.open(wav_path, "rb") as w:
         play_duration_s = w.getnframes() / float(w.getframerate())
 
-    last_offset = WAV_HEADER_BYTES
+    # Continue from pre_wait_offset, not WAV_HEADER_BYTES - any speech
+    # already consumed by the pre-play wait above must not be re-counted
+    # as NEW speech the instant this loop starts (that would set
+    # heard_speech=True on bytes that predate our own playback entirely).
+    last_offset = pre_wait_offset
     heard_speech = False
     silence_start: Optional[float] = None
     listen_deadline: Optional[float] = None
@@ -275,7 +350,8 @@ def run_conversation(ep: pj.Endpoint, call: MockAgentCall, scenario_id: str, lan
                      lang_meta: dict, tts: str, rng: np.random.Generator,
                      asr_error_rate: float, repair_threshold: float,
                      silent_error_rate: float, scratch_dir: str,
-                     max_turn_listen_s: float = 15.0, asr_model: str = "tiny") -> list[dict]:
+                     max_turn_listen_s: float = 15.0, asr_model: str = "tiny",
+                     asr_backend: str = "local") -> list[dict]:
     """The whole call, start to hangup. Blocks; runs from the server's
     top-level loop, never nested inside a PJSIP callback. Returns the
     per-turn log (what was heard, the decided outcome, confidence) for the
@@ -295,7 +371,8 @@ def run_conversation(ep: pj.Endpoint, call: MockAgentCall, scenario_id: str, lan
                              "outcome": "timeout"})
             break
 
-        transcript = asr.transcribe(wav_path, language=whisper_language, model_name=asr_model)
+        transcript = asr.transcribe(wav_path, language=whisper_language, model_name=asr_model,
+                                    backend=asr_backend)
         decision = decide_outcome(transcript.text, transcript.confidence, rng,
                                   asr_error_rate=asr_error_rate,
                                   repair_threshold=repair_threshold,

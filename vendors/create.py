@@ -135,10 +135,14 @@ def retell_get_agent(agent_id: str) -> dict:
 
 def retell_update_agent(agent_id: str, fields: dict) -> dict:
     """Partial update of an EXISTING agent (e.g. switching its language) -
-    PATCH on the same resource URL as get_endpoint, confirmed live."""
+    PATCH update_endpoint, a SEPARATE URL from get_endpoint. Confirmed live
+    this distinction is real, not assumed: unlike Telnyx/ElevenLabs (which
+    accept PATCH on the same URL used for GET), Retell's API returns a 404
+    "Cannot PATCH /get-agent/..." on that URL - this previously crashed
+    every real Retell pilot call before it ever dialed."""
     vcfg = load_vendor_config("retell")
     api_key = _env(vcfg["auth"]["api_key_env"])
-    url = vcfg["create"]["get_endpoint"].format(agent_id=agent_id)
+    url = vcfg["create"]["update_endpoint"].format(agent_id=agent_id)
     return patch_json(url, fields, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
 
 

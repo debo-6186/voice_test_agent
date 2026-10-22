@@ -41,11 +41,25 @@ GENERIC_FALLBACK: dict[str, str] = {
 
 
 def generate_reply_text(agent_utterance: str, lang: str, remaining_fields: list[str],
+                        remaining_field_values: dict[str, str] | None = None,
                         best_guess_intent: str | None = None, best_guess_confidence: float = 0.0,
                         timeout_s: float = 6.0) -> tuple[str, str]:
     """Returns (reply_text, divergence_reason). "no_llm_configured" when
     GEMINI_API_KEY is unset - the call must keep going on the generic
     fallback, never fail (CLAUDE.md: never a hard fail).
+
+    remaining_field_values: {field_name: the scenario's own canonical
+    scripted sentence for that field} (CallerState.remaining_field_values)
+    - MUST be supplied whenever available. Confirmed live this is a real
+    bug otherwise: telling Gemini only the field NAME ("date") with no
+    reference at all, it fabricated "Friday, the 24th" when the scenario's
+    real scripted date was October 15th - a vendor then correctly heard
+    and read back exactly that WRONG date, which looked like a vendor
+    failure in the score but was entirely ours. The caller is supposed to
+    be a deterministic, scripted state machine with every fact already
+    known (CLAUDE.md) - the LLM here exists only to phrase an off-script
+    turn naturally, never to invent a fact that has a known correct
+    answer.
 
     best_guess_intent/confidence: tier 3 fires on LOW confidence, not NO
     information - Laya's point guess is still real signal (e.g. "closing"
@@ -58,13 +72,26 @@ def generate_reply_text(agent_utterance: str, lang: str, remaining_fields: list[
     if not key:
         return GENERIC_FALLBACK.get(lang, GENERIC_FALLBACK["en-US"]), "no_llm_configured"
 
+    remaining_field_values = remaining_field_values or {}
+    if remaining_fields:
+        details = "; ".join(
+            f'{f} (reference - what you would say if asked: "{remaining_field_values[f]}")'
+            if f in remaining_field_values else f
+            for f in remaining_fields
+        )
+        needs_line = (f"You still need to provide: {details}. If your reply mentions any of "
+                      "these, the FACTS must exactly match their reference sentence (the same "
+                      "name/number/date) - never invent, guess, or substitute a different one, "
+                      "even if a different one seems more natural to say.")
+    else:
+        needs_line = "You have already provided everything you need to - don't volunteer anything new."
     hint = ""
     if best_guess_intent and best_guess_confidence > 0:
         hint = (f" (A rough, not-fully-confident guess is that the agent is doing "
                f"'{best_guess_intent}' - weight this but verify it fits the actual words.)")
     prompt = (
         f"You are a caller on a phone booking call, speaking {lang}. "
-        f"You still need to provide: {', '.join(remaining_fields) or 'nothing else'}. "
+        f"{needs_line} "
         f'The agent just said: "{agent_utterance}".{hint} '
         "Reply with ONE short, natural spoken sentence a real caller would say next. "
         "No quotation marks, no explanation, just the sentence."
