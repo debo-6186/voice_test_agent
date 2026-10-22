@@ -349,12 +349,29 @@ def telnyx_delete_agent(agent_id: str) -> None:
 
 _LANGUAGE_UPDATE_FIELDS = {
     "retell": lambda code: {"language": code},
-    "elevenlabs": lambda code: {"conversation_config": {"agent": {"language": code}}},
 }
 _LANGUAGE_UPDATERS = {
     "retell": retell_update_agent,
-    "elevenlabs": elevenlabs_update_agent,
 }
+
+# Plain ISO-639-1 -> English name, for writing the language-override
+# directive's prose text (see _with_language_override below) - vendor-
+# agnostic, unlike telnyx.yaml's language_boost_names, which records a
+# live-VERIFIED accepted API enum value for one specific Telnyx field.
+# These two happen to hold the same strings today; that's a coincidence of
+# English being both this directive's human-readable name AND Telnyx's
+# accepted enum value, not a reason to merge them - one is free-text prose
+# used by any vendor, the other is a specific vendor's API contract.
+_LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "es": "Spanish", "id": "Indonesian"}
+
+
+def _language_name(vendor_code: str) -> str:
+    name = _LANGUAGE_NAMES.get(vendor_code)
+    if name is None:
+        raise VendorCreateError(
+            f"no language name known for code {vendor_code!r} - add one to _LANGUAGE_NAMES"
+        )
+    return name
 
 
 # --------------------------------------------------------------------------
@@ -441,6 +458,45 @@ def _telnyx_language_fields(vcfg: dict, agent_id: str, vendor_code: str) -> dict
     }
 
 
+def _elevenlabs_language_fields(bcp47_lang: str, agent_id: str, vendor_code: str) -> dict:
+    """Same gap as Telnyx's, confirmed live (2026-10-22) the same way: the
+    live test agent's conversation_config.agent.language was already being
+    pushed (the original, incomplete fix), but conversation_config.
+    language_presets was empty - no per-language override of the agent's
+    own content exists at all, so switching `language` alone changes
+    nothing the agent actually says. Two more fields matter:
+    conversation_config.tts.voice_id (elevenlabs_create_agent() already
+    assigns this per language FROM config/utterances.yaml at creation time -
+    confirmed live the dial-time switch was never doing the same thing, so
+    a call placed against an agent created in one language and switched to
+    another kept the FIRST language's voice) and agent.prompt.prompt (the
+    LLM's own system prompt - plain English, no language directive, same
+    class of gap as Telnyx's instructions field, fixed the same way: fetch
+    current, prepend a marker-delimited override via the shared
+    _with_language_override()/_strip_language_override() helpers above
+    rather than overwriting the real scenario prompt). first_message is
+    deliberately left untouched, same scope as the Telnyx fix: it's a
+    literal, non-LLM string with no translated version anywhere in this
+    project, and the opening turn's English greeting already classifies
+    correctly regardless of call language (caller/intent.py's ask_name
+    patterns check both languages) - confirmed live on Telnyx's own
+    unmodified English greeting working fine across the full hi-IN retest."""
+    lang_meta = _utterances_lang_meta(bcp47_lang)
+    current = elevenlabs_get_agent(agent_id)
+    current_prompt = (((current.get("conversation_config") or {}).get("agent") or {})
+                      .get("prompt") or {}).get("prompt", "")
+    name = _language_name(vendor_code)
+    return {
+        "conversation_config": {
+            "agent": {
+                "language": vendor_code,
+                "prompt": {"prompt": _with_language_override(current_prompt, name)},
+            },
+            "tts": {"voice_id": lang_meta["elevenlabs_voice_id"]},
+        },
+    }
+
+
 def default_agent_id(vendor: str) -> str:
     """The existing test agent/assistant each vendor's *.yaml dial config
     already points at - telnyx's lives directly in dial.assistant_id;
@@ -467,10 +523,11 @@ def set_agent_language(vendor: str, agent_id: str, bcp47_lang: str) -> dict:
             f"tried {lang.fallback_chain_tried}"
         )
     if vendor == "telnyx":
-        fields = _telnyx_language_fields(vcfg, agent_id, lang.vendor_code)
+        telnyx_update_agent(agent_id, _telnyx_language_fields(vcfg, agent_id, lang.vendor_code))
+    elif vendor == "elevenlabs":
+        elevenlabs_update_agent(agent_id, _elevenlabs_language_fields(bcp47_lang, agent_id, lang.vendor_code))
     else:
-        fields = _LANGUAGE_UPDATE_FIELDS[vendor](lang.vendor_code)
-    _LANGUAGE_UPDATERS.get(vendor, telnyx_update_agent)(agent_id, fields)
+        _LANGUAGE_UPDATERS[vendor](agent_id, _LANGUAGE_UPDATE_FIELDS[vendor](lang.vendor_code))
     return lang.as_dict()
 
 
