@@ -350,13 +350,95 @@ def telnyx_delete_agent(agent_id: str) -> None:
 _LANGUAGE_UPDATE_FIELDS = {
     "retell": lambda code: {"language": code},
     "elevenlabs": lambda code: {"conversation_config": {"agent": {"language": code}}},
-    "telnyx": lambda code: {"transcription": {"language": code}},
 }
 _LANGUAGE_UPDATERS = {
     "retell": retell_update_agent,
     "elevenlabs": elevenlabs_update_agent,
-    "telnyx": telnyx_update_agent,
 }
+
+
+# --------------------------------------------------------------------------
+# Telnyx's language switch needs more than the one field above handles -
+# confirmed live (2026-10-22): transcription.language alone (the ONLY field
+# the original fix pushed) sets what the assistant can correctly HEAR, but
+# nothing about what it SPEAKS. Two more fields silently keep it English:
+# voice_settings.language_boost (biases the TTS's own pronunciation/decoding
+# toward a language independently of transcription.language - left at its
+# creation-time default "English" every time) and instructions (the LLM's
+# system prompt, written in plain English with no language directive at
+# all - so the LLM has no reason to respond in anything but English). A
+# live hi-IN/Telnyx call under this gap produced heavy English/Hindi
+# code-switching that our own forced-Hindi in-loop ASR then transliterated
+# into unmatchable phonetic Devanagari ("पॉन नंबर टू रीच यू आट" for "phone
+# number to reach you at"), silently routing a perfectly ordinary,
+# correctly-understood-by-a-human question to the adaptive LLM fallback
+# instead of tier 1 - a measurement artifact of this misconfiguration, not
+# real vendor degradation, the same class of confound the original
+# transcription.language fix (f29a4ba) was written to catch.
+# --------------------------------------------------------------------------
+
+_LANG_OVERRIDE_START = "<<<LANGUAGE_OVERRIDE_START>>>"
+_LANG_OVERRIDE_END = "<<<LANGUAGE_OVERRIDE_END>>>"
+
+
+def _strip_language_override(instructions: str) -> str:
+    """Removes a PREVIOUSLY-inserted override block, if any - set_agent_
+    language runs before every single call, so without this a call that
+    switches language twice (e.g. a fresh en-US call after a hi-IN one)
+    would keep stacking override blocks at the top forever instead of
+    replacing the one that's there. Marker-delimited rather than diffed
+    against the known directive text, so it's robust to the directive
+    wording itself changing later."""
+    start = instructions.find(_LANG_OVERRIDE_START)
+    end = instructions.find(_LANG_OVERRIDE_END)
+    if start == -1 or end == -1:
+        return instructions
+    end += len(_LANG_OVERRIDE_END)
+    return instructions[:start] + instructions[end:].lstrip("\n")
+
+
+def _with_language_override(instructions: str, language_name: str) -> str:
+    base = _strip_language_override(instructions)
+    directive = (
+        f"{_LANG_OVERRIDE_START}\n"
+        f"Respond to the caller ONLY in {language_name}, in that language's own "
+        f"native script, regardless of what language the caller speaks. This "
+        f"overrides every instruction below: if any example phrase below is "
+        f"written in English, say its {language_name} equivalent instead, never "
+        f"the literal English text.\n"
+        f"{_LANG_OVERRIDE_END}\n\n"
+    )
+    return directive + base
+
+
+def _telnyx_language_fields(vcfg: dict, agent_id: str, vendor_code: str) -> dict:
+    """Builds the full telnyx_update_agent() payload: transcription.language
+    (STT - the original fix) plus voice_settings.language_boost (TTS bias)
+    plus an instructions override block (LLM response language) - see this
+    module's own comment above set_agent_language() for why all three are
+    needed. Fetches the agent's CURRENT instructions/voice first rather than
+    assuming - PATCHing voice_settings requires voice to be present in the
+    same call (confirmed live: omitting it 400s with "Missing required
+    parameter" on /body/voice_settings/voice, even though every other
+    voice_settings field not sent round-trips untouched), and overwriting
+    instructions wholesale would destroy the actual scenario prompt."""
+    boost_names = (vcfg.get("create") or {}).get("language_boost_names", {})
+    boost_name = boost_names.get(vendor_code)
+    if boost_name is None:
+        raise VendorCreateError(
+            f"telnyx has no language_boost_names entry for resolved code {vendor_code!r} "
+            f"(known: {sorted(boost_names)}) - add one to vendors/telnyx.yaml, verified "
+            f"live via a free PATCH+GET, before relying on it"
+        )
+    current = telnyx_get_agent(agent_id)
+    current_voice = (current.get("voice_settings") or {}).get("voice")
+    if not current_voice:
+        raise VendorCreateError(f"telnyx agent {agent_id} has no voice_settings.voice to preserve")
+    return {
+        "transcription": {"language": vendor_code},
+        "voice_settings": {"voice": current_voice, "language_boost": boost_name},
+        "instructions": _with_language_override(current.get("instructions", ""), boost_name),
+    }
 
 
 def default_agent_id(vendor: str) -> str:
@@ -384,8 +466,11 @@ def set_agent_language(vendor: str, agent_id: str, bcp47_lang: str) -> dict:
             f"{vendor} has no language code or fallback for {bcp47_lang!r}: "
             f"tried {lang.fallback_chain_tried}"
         )
-    fields = _LANGUAGE_UPDATE_FIELDS[vendor](lang.vendor_code)
-    _LANGUAGE_UPDATERS[vendor](agent_id, fields)
+    if vendor == "telnyx":
+        fields = _telnyx_language_fields(vcfg, agent_id, lang.vendor_code)
+    else:
+        fields = _LANGUAGE_UPDATE_FIELDS[vendor](lang.vendor_code)
+    _LANGUAGE_UPDATERS.get(vendor, telnyx_update_agent)(agent_id, fields)
     return lang.as_dict()
 
 
