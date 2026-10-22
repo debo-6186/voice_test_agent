@@ -69,9 +69,28 @@ _TIER1_PATTERNS: dict[str, list[str]] = {
     "ask_name": [r"\byour name\b", r"\bget your name\b", r"\bmay i have your name\b",
                 r"आपका नाम", r"नाम (बता|ले) सक"],
     "closing": [r"\bhave a good day\b", r"\ball booked\b", r"\bthank you for calling\b", r"\bnoted your number\b",
+               # "thanks for calling" (not "thank you for calling") turned up
+               # as this specific Telnyx vendor's own, consistently-used
+               # closing phrase - confirmed live across EIGHT separate real
+               # calls tonight where it unnecessarily fell through to Laya/
+               # adaptive (eventually resolving correctly, but each one
+               # risked an LLM call it didn't need) purely because this
+               # project's own pattern required the word "you" that this
+               # vendor simply never says.
+               r"\bthanks for calling\b", r"\bwe'?ll see you\b",
                r"दिन शुभ हो", r"बुक हो (गई|गयी) है", r"कॉल करने के लिए धन्यवाद", r"अलविदा"],
-    "confirm": [r"\blet me confirm\b", r"\bis that correct\b", r"\breading.*back\b",
-               r"क्या यह सही है", r"कन्फर्म कर"],
+    "confirm": [r"\blet me confirm\b", r"\bis that correct\b", r"\bis that right\b", r"\breading.*back\b",
+               # Comma- and word-variant-tolerant, not the single rigid
+               # literal string this used to be - confirmed live, hi-IN/
+               # C_loss5: the vendor's own TTS inserted a comma mid-phrase
+               # ("क्या, यह सही है?") and separately used the colloquial "ये"
+               # instead of "यह" (both mean "this/that", "ये" is the more
+               # conversational form) - either variation alone defeated the
+               # old exact-string match, sending BOTH instances to Laya,
+               # which confidently (0.95-0.99) mislabelled them "ask_phone"
+               # instead of "confirm" purely because a phone number was also
+               # present in the same sentence.
+               r"क्या,?\s*(यह|ये),?\s*सही\s*है", r"कन्फर्म कर"],
 }
 
 LAYA_QUESTIONS = {
