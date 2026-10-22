@@ -63,7 +63,28 @@ _TIER1_PATTERNS: dict[str, list[str]] = {
     "repair": [r"didn.?t catch", r"say that again", r"\brepeat\b", r"\bclarify\b",
               r"समझ (नहीं|नही) (पाया|पायी|आया)", r"फिर से बता", r"दोहरा"],
     "ask_date": [r"\bwhat date\b", r"\bdate would you like\b", r"\bwhen.*appointment\b",
-                r"कौन सी तारीख", r"किस तारीख", r"तारीख चाहेंगे", r"कब.{0,15}अपॉइंटमेंट"],
+                r"कौन सी तारीख", r"किस तारीख", r"तारीख चाहेंगे", r"कब.{0,15}अपॉइंटमेंट",
+                # "तारीक" (no ख) - confirmed live, hi-IN/A_cafe_snr05: this
+                # vendor's own TTS/our in-loop ASR rendered "तारीख" this way,
+                # the same recurring Devanagari-spelling-variant pattern as
+                # referee/dates.py's HI_IN_MONTH_ALT_SPELLINGS (three spellings
+                # of October alone). Missing it here mattered a lot more than
+                # a simple miss: this exact turn was "...987-6543-210. क्या यह
+                # सही है? अब आप किस तारीक के लिए appointment चाहेंगी?" - a
+                # confirm phrase FOLLOWED by a brand-new date question in the
+                # same breath, and ask_date is deliberately checked before
+                # confirm (see this dict's own docstring) for exactly this
+                # compound-sentence case. With "तारीक" unmatched, tier-1 fell
+                # through to "confirm" instead, which (correctly, given no
+                # entity match) left "date" uncollected - but then also
+                # triggered the confirm branch's blanket "every remaining
+                # field is now settled" fallback (state_machine.py), which
+                # had exactly one field left and wrongly closed it out. The
+                # call ended two turns later having never once asked for the
+                # date at all, not because of a state-machine bug, but
+                # because the question asking for it was never recognized as
+                # a question in the first place.
+                r"कौन सी तारीक", r"किस तारीक", r"तारीक चाहेंगे", r"तारीक के लिए"],
     "ask_phone": [r"\bphone number\b", r"\bhandphone\b", r"\bcontact number\b", r"\bcallback number\b",
                  r"फ़?ोन नंबर", r"मोबाइल नंबर", r"संपर्क नंबर", r"नंबर (दे|ले) सक"],
     "ask_name": [r"\byour name\b", r"\bget your name\b", r"\bmay i have your name\b",
