@@ -52,6 +52,40 @@ def _digit_run_matches(text: str, expected_digits: str) -> bool:
     return bool(re.search(pattern, text))
 
 
+# Hindi spelled-out digit words -> numerals - the hi-IN counterpart to
+# whisper_normalizer's EnglishTextNormalizer, which match_phone's own
+# docstring already relies on to catch English digits spelled as words
+# ("nine one four..." -> "9142..."). No Hindi equivalent exists anywhere in
+# this pipeline - referee/normalize.py's hi-IN normalizer
+# (BasicTextNormalizer(preserve_marks=True)) only fixes combining-mark
+# stripping, it does not do word-to-number conversion. Confirmed live this
+# is a real gap, not theoretical: a real ElevenLabs/hi-IN call correctly
+# read back "987654321 शून्य" (nine digits then the WORD "zero" for the
+# final digit, not the numeral "0") - a complete, correct 10-digit readback
+# that _digit_run_matches had no way to recognize as such.
+_HI_IN_DIGIT_WORDS: dict[str, str] = {
+    # "शुन्य" (short उ) vs "शून्य" (long ऊ) - confirmed live the SAME
+    # vowel-length variation already seen everywhere else in this project's
+    # Hindi text (referee/dates.py's HI_IN_MONTH_ALT_SPELLINGS, caller/
+    # intent.py's तारीक/तरीक) - the real transcript this whole fallback was
+    # built for actually used "शुन्य", not "शून्य".
+    "शून्य": "0", "शुन्य": "0", "एक": "1", "दो": "2", "तीन": "3", "चार": "4",
+    "पांच": "5", "पाँच": "5", "छह": "6", "छः": "6", "सात": "7", "आठ": "8", "नौ": "9",
+}
+
+
+def _hindi_digit_words_to_numerals(text: str) -> str:
+    """Whole-token replacement (split on whitespace), not a substring regex -
+    a Devanagari \\b doesn't reliably bound combining marks (the same issue
+    caller/intent.py's affirmation patterns hit with "हां" inside "यहां"),
+    and several of these words are short enough to plausibly turn up as a
+    substring inside an unrelated longer word. Applied unconditionally for
+    every language, same as EnglishTextNormalizer already is - a no-op on
+    non-Hindi text, since these exact Devanagari tokens won't appear there."""
+    words = text.split()
+    return " ".join(_HI_IN_DIGIT_WORDS.get(w.strip("।,.?!\"'"), w) for w in words)
+
+
 def match_phone(raw_text: str, normalized_text: str, expected: dict) -> tuple[bool, str]:
     """Returns (matched, method). expected: {value, digits, ...}.
 
@@ -71,6 +105,9 @@ def match_phone(raw_text: str, normalized_text: str, expected: dict) -> tuple[bo
         return True, "digits_exact"
     if _digit_run_matches(normalized_text, expected["value"]):
         return True, "digits_exact_normalized_fallback"
+    hindi_words_text = _hindi_digit_words_to_numerals(raw_text)
+    if hindi_words_text != raw_text and _digit_run_matches(hindi_words_text, expected["value"]):
+        return True, "digits_exact_hindi_words_fallback"
     return False, "digits_exact"
 
 
