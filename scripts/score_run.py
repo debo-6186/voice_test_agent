@@ -86,7 +86,9 @@ def main() -> None:
             print(f"{call_id}: {result['n_slots_correct']}/{result['n_slots_total']} slots, "
                  f"{result['n_turns']} turns, {result['duration_s']}s, "
                  f"{result['n_repairs']} repairs, {result['n_silent_errors']} silent errors, "
-                 f"task_success={result['task_success']}")
+                 f"task_success={result['task_success']}, "
+                 f"tier1={result['n_tier1']} tier2={result['n_tier2']} tier3={result['n_tier3']} "
+                 f"adaptive={result['n_adaptive_action']}")
 
     # Plain per-language aggregate - counts/means only, no CI/bootstrap/pass^k
     # (explicitly out of scope for this pass - see the plan's Phase 8 slice).
@@ -97,6 +99,20 @@ def main() -> None:
     summary = {}
     for lang, rows in by_lang.items():
         n = len(rows)
+        # Resolution-path totals across all calls - n_turns_classified
+        # excludes rows with no tier (the unprompted opening, timeouts,
+        # disconnects) so the tier1/2/3 percentages are of turns that were
+        # actually classified, not of every logged row. n_adaptive_action
+        # is tracked separately from n_tier3 - see referee/score.py's
+        # score_call() docstring on why the two are no longer the same
+        # count - it's the one that answers "how many turns actually broke
+        # this run's controlled-noise premise by hearing freshly-
+        # synthesized audio instead of the real corpus file."
+        n_tier1 = sum(r["n_tier1"] for r in rows)
+        n_tier2 = sum(r["n_tier2"] for r in rows)
+        n_tier3 = sum(r["n_tier3"] for r in rows)
+        n_adaptive = sum(r["n_adaptive_action"] for r in rows)
+        n_turns_classified = n_tier1 + n_tier2 + n_tier3
         summary[lang] = {
             "n_calls": n,
             "task_success_rate": sum(r["task_success"] for r in rows) / n,
@@ -105,6 +121,12 @@ def main() -> None:
             ) / n,
             "mean_repairs": sum(r["n_repairs"] for r in rows) / n,
             "mean_silent_errors": sum(r["n_silent_errors"] for r in rows) / n,
+            "n_tier1": n_tier1, "n_tier2": n_tier2, "n_tier3": n_tier3,
+            "n_adaptive_action": n_adaptive, "n_turns_classified": n_turns_classified,
+            "tier1_fraction": n_tier1 / n_turns_classified if n_turns_classified else 0.0,
+            "tier2_fraction": n_tier2 / n_turns_classified if n_turns_classified else 0.0,
+            "tier3_fraction": n_tier3 / n_turns_classified if n_turns_classified else 0.0,
+            "adaptive_fraction_of_turns": n_adaptive / n_turns_classified if n_turns_classified else 0.0,
         }
 
     with open(os.path.join(args.out, "summary.json"), "w", encoding="utf-8") as f:
@@ -115,6 +137,11 @@ def main() -> None:
         print(f"{lang}: {s['n_calls']} calls, task_success={s['task_success_rate']:.2f}, "
              f"mean_slots={s['mean_slots_correct_fraction']:.2f}, "
              f"mean_repairs={s['mean_repairs']:.1f}, mean_silent_errors={s['mean_silent_errors']:.1f}")
+        print(f"  resolution path ({s['n_turns_classified']} classified turns): "
+             f"tier1={s['n_tier1']} ({s['tier1_fraction']:.0%}), "
+             f"tier2={s['n_tier2']} ({s['tier2_fraction']:.0%}), "
+             f"tier3={s['n_tier3']} ({s['tier3_fraction']:.0%}), "
+             f"adaptive={s['n_adaptive_action']} ({s['adaptive_fraction_of_turns']:.0%} of turns)")
 
 
 if __name__ == "__main__":

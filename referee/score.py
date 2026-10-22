@@ -143,6 +143,26 @@ def score_call(call_log: dict, scenario_turns: list[dict], segments: list[dict] 
     n_repairs = sum(1 for row in turn_log if row.get("intent") == "repair")
     n_silent_errors = sum(1 for f in fields_result.values() if f["silent_error"])
 
+    # Resolution-path breakdown - PLAN.md's own divergence metric, and the
+    # thing that actually governs this benchmark's validity per-turn: tier
+    # 1/2 (regex, or Laya trusted >= tier3_threshold) resolve through the
+    # pre-built, condition-degraded canonical WAV or a fixed utility phrase.
+    # Tier 3 (needs_adaptive=True, Laya under threshold) USED to always mean
+    # action=="play_adaptive" - a FRESH LLM reply through synth_and_degrade(),
+    # which mixes in an independently-sampled noise clip rather than
+    # continuing the session's real degraded recording (caller/adaptive.py's
+    # own docstring). Tonight's fixes decoupled the two (closing-with-
+    # nothing-remaining, repair, and a confirmed-by-agent field no longer
+    # always escalate just because confidence was low), so n_tier3 and
+    # n_adaptive_action are reported separately rather than assumed equal -
+    # n_adaptive_action is the one that actually counts turns where the
+    # vendor heard freshly-synthesized audio instead of this condition's
+    # real corpus file.
+    n_tier1 = sum(1 for row in turn_log if row.get("tier") == 1)
+    n_tier2 = sum(1 for row in turn_log if row.get("tier") == 2)
+    n_tier3 = sum(1 for row in turn_log if row.get("tier") == 3)
+    n_adaptive_action = sum(1 for row in turn_log if row.get("action") == "play_adaptive")
+
     return {
         "call_id": call_log["call_id"], "scenario": call_log["scenario"], "lang": lang,
         "vendor": call_log.get("vendor"), "referee_model": "whisper-large-v3-groq",
@@ -152,4 +172,6 @@ def score_call(call_log: dict, scenario_turns: list[dict], segments: list[dict] 
         "n_turns": len([r for r in turn_log if r.get("i") is not None]),
         "duration_s": call_log.get("duration_s"),
         "n_repairs": n_repairs, "n_silent_errors": n_silent_errors,
+        "n_tier1": n_tier1, "n_tier2": n_tier2, "n_tier3": n_tier3,
+        "n_adaptive_action": n_adaptive_action,
     }
