@@ -37,14 +37,24 @@ class RefereeASRError(VendorHTTPError):
 class RefereeTranscript:
     text: str
     language: str | None
-    words: list[dict] | None   # only populated when response_format="verbose_json"
-    raw: dict                   # full response, kept for provenance/debugging
+    words: list[dict] | None      # only populated when response_format="verbose_json" -
+                                   # confirmed live Groq never actually fills this in,
+                                   # kept only so a future format change is visible here
+    segments: list[dict] | None   # verbose_json's segment list: [{start, end, text}, ...] -
+                                   # the per-field time markers referee/entities.py searches by
+    raw: dict                     # full response, kept for provenance/debugging
 
 
-def transcribe_turn(wav_path: str, bcp47_lang: str, *,
-                    response_format: str = "verbose_json",
-                    cache_path: str | None = None) -> RefereeTranscript:
-    """Transcribes one turn's agent audio via Groq's hosted whisper-large-v3.
+def transcribe_wav(wav_path: str, bcp47_lang: str, *,
+                   response_format: str = "verbose_json",
+                   cache_path: str | None = None) -> RefereeTranscript:
+    """Transcribes one WAV via Groq's hosted whisper-large-v3. Called ONCE
+    per call against the continuous `_full_call.wav` (caller/call.py), not
+    once per turn against a per-turn file - a per-turn recorder is torn
+    down on our own live silence-detection heuristic, not on anything about
+    the actual audio, and confirmed live to sometimes cut off real agent
+    speech before this function ever saw it. No ASR model, however good,
+    can transcribe audio a recorder never captured.
 
     cache_path, when given, is checked first and written after a successful
     call - makes a scoring run idempotent/resumable and avoids re-paying
@@ -53,7 +63,7 @@ def transcribe_turn(wav_path: str, bcp47_lang: str, *,
         with open(cache_path, encoding="utf-8") as f:
             raw = json.load(f)
         return RefereeTranscript(text=raw.get("text", ""), language=raw.get("language"),
-                                 words=raw.get("words"), raw=raw)
+                                 words=raw.get("words"), segments=raw.get("segments"), raw=raw)
 
     headers = {"Authorization": f"Bearer {env('GROQ_API_KEY', error_cls=RefereeASRError)}"}
     fields = {"model": MODEL, "language": whisper_lang(bcp47_lang),
@@ -67,4 +77,4 @@ def transcribe_turn(wav_path: str, bcp47_lang: str, *,
             json.dump(resp, f, ensure_ascii=False, indent=2)
 
     return RefereeTranscript(text=resp.get("text", ""), language=resp.get("language"),
-                             words=resp.get("words"), raw=resp)
+                             words=resp.get("words"), segments=resp.get("segments"), raw=resp)

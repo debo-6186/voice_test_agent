@@ -40,6 +40,12 @@ create:
   llm_delete_endpoint: "https://api.retellai.com/delete-retell-llm/{llm_id}"
   endpoint: "https://api.retellai.com/create-agent"
   get_endpoint: "https://api.retellai.com/get-agent/{agent_id}"
+  # A SEPARATE endpoint from get_endpoint - unlike Telnyx/ElevenLabs, Retell's
+  # API does not accept PATCH on the GET resource URL (confirmed live:
+  # PATCH get-agent/{id} returns a 404 "Cannot PATCH /get-agent/...", which
+  # crashed every real Retell pilot call before dialing even started).
+  # PATCH update-agent/{id} is the real, confirmed-working endpoint.
+  update_endpoint: "https://api.retellai.com/update-agent/{agent_id}"
   delete_endpoint: "https://api.retellai.com/delete-agent/{agent_id}"
   voice_field_path: "voice_id"   # confirmed live
   languages:

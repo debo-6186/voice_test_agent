@@ -20,14 +20,43 @@ MONTH_NAMES: dict[str, dict[int, str]] = {
              7: "जुलाई", 8: "अगस्त", 9: "सितंबर", 10: "अक्टूबर", 11: "नवंबर", 12: "दिसंबर"},
 }
 
+# Alternate hi-IN spellings for the same month, confirmed live on real Telnyx
+# transcripts - THREE distinct spellings for October alone have turned up so
+# far ("अक्टूबर", "अक्टोबर", "ऑक्टोबर" - the long "o" vowel transliterated
+# three different ways, the third using "ऑ", the candra-O sign typically
+# reserved for English loanwords). Not exhaustive for every month, just
+# every spelling actually observed in this project's own corpus/transcripts
+# so far. Add to this as new variants turn up live, rather than guessing all
+# twelve months' alternates up front - the recurring pattern (three
+# spellings for ONE month already) suggests more are likely still out there
+# for months not yet seen enough times to have surfaced a variant.
+HI_IN_MONTH_ALT_SPELLINGS: dict[int, list[str]] = {
+    10: ["अक्टोबर", "ऑक्टोबर"],
+}
+
 
 def date_entity_present(normalized_text: str, lang: str, expected_value: str) -> bool:
-    """expected_value is config/scenarios.yaml's '--MM-DD' ground truth."""
+    """expected_value is config/scenarios.yaml's '--MM-DD' ground truth.
+
+    Checks the month name in BOTH the call's own language and English, not
+    just the call's language - confirmed live on real hi-IN/Telnyx calls
+    (15/15 in one batch) that this project's own referee was scoring every
+    single "date" field as unmatched even when the vendor clearly confirmed
+    the date, because the vendor said the month in plain English ("Got it!
+    You'd like October 15th.") inside an otherwise-Hindi call, and this
+    function previously required the Hindi month name ONLY - a real,
+    expected code-switching pattern (this project's own corpus has a whole
+    utterance class for it), not a transcription error, but the date check
+    treated it as entirely absent. English-only languages have nothing
+    extra to add here (en-US's own fallback IS the primary check), so the
+    set naturally collapses to one name for those."""
     month_num, day_num = int(expected_value[2:4]), int(expected_value[5:7])
     text = normalized_text.lower()
 
-    month_name = MONTH_NAMES[lang][month_num]
-    if month_name.lower() not in text:
+    month_names = {MONTH_NAMES[lang][month_num].lower(), MONTH_NAMES["en-US"][month_num].lower()}
+    if lang == "hi-IN":
+        month_names.update(s.lower() for s in HI_IN_MONTH_ALT_SPELLINGS.get(month_num, []))
+    if not any(name in text for name in month_names):
         return False
 
     day_re = re.compile(rf"\b0?{day_num}(?:st|nd|rd|th)?\b")

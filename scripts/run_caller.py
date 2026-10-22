@@ -17,7 +17,15 @@ python scripts/run_caller.py \
     --session-dir out/sessions/sessions/en-US/S3_name_phone_date/ctl_clean \
     --scenario S3_name_phone_date --lang en-US \
     --vendor telnyx --local-port 5070 --stun stun.l.google.com:19302 \
-    --tts elevenlabs --log out/caller_telnyx.jsonl
+    --log out/caller_telnyx.jsonl
+
+--tts/--asr-backend DEFAULT TO elevenlabs/groq, NOT espeak/local - user's
+explicit, repeated choice (pay-per-use, "no problem") after confirming live on
+hi-IN that local espeak+faster-whisper-base produces garbled, low-confidence
+transcripts. A DELIBERATE, STATED DEVIATION from CLAUDE.md's zero-cost dev
+default AND, for a real vendor call, from its in-loop/referee model-
+independence rule (see --asr-backend's own help text) - pass --tts espeak
+--asr-backend local to get the original path back.
 """
 from __future__ import annotations
 
@@ -82,13 +90,31 @@ def main() -> None:
     p.add_argument("--stun", default=None,
                    help="host:port - needed for anything off-localhost, see "
                         "sip_probe.account.make_endpoint's docstring")
-    p.add_argument("--tts", default="espeak", choices=["espeak", "elevenlabs"])
+    p.add_argument("--tts", default="elevenlabs", choices=["espeak", "elevenlabs"],
+                   help="elevenlabs (default): higher-quality voice, pay-per-use "
+                        "(ELEVENLABS_API_KEY) - user's explicit, repeated choice. Needed "
+                        "on longer adaptive-reply utterances for Groq to transcribe "
+                        "cleanly, confirmed live on hi-IN. espeak: free, zero-account "
+                        "fallback, but its Hindi voice degrades badly on longer sentences.")
     p.add_argument("--tier3-threshold", type=float, default=0.75)
     p.add_argument("--max-listen-s", type=float, default=15.0)
     p.add_argument("--silence-s", type=float, default=0.7,
                    help="end-of-turn silence threshold - lower cuts dead air "
                         "but risks truncating the agent mid-sentence")
     p.add_argument("--asr-model", default="base")
+    p.add_argument("--asr-backend", default="groq", choices=["local", "groq"],
+                   help="groq (default): pay-per-use Groq-hosted whisper-large-v3 "
+                        "(GROQ_API_KEY) - user's explicit, repeated choice; confirmed "
+                        "live far faster and more accurate than the local CPU model on "
+                        "hi-IN (0.95s and an accurate transcript vs 32-39s and garbled "
+                        "output locally). IMPORTANT: this is the SAME model "
+                        "referee/groq_asr.py uses for offline scoring. Fine against the "
+                        "mock agent (never scored data); against a REAL vendor whose "
+                        "results feed the published benchmark, this collapses CLAUDE.md's "
+                        "in-loop/referee model-independence rule - pass --asr-backend "
+                        "local for any run whose results need to stay independent of the "
+                        "referee. local: free faster-whisper on CPU, zero accounts - the "
+                        "original dev fallback, still available via --asr-backend local.")
     p.add_argument("--sip-auth-user", default=None,
                    help="digest auth username for trunks gated on username/password "
                         "(e.g. LiveKit when allowed_addresses isn't enabled for the project)")
@@ -130,7 +156,8 @@ def main() -> None:
     # otherwise lands mid-call with a live vendor agent waiting on us.
     print("warming up ASR + intent classifier...")
     warmup_start = time.time()
-    asr.warmup(args.asr_model)
+    if args.asr_backend == "local":   # groq is a hosted API - no local model to warm
+        asr.warmup(args.asr_model)
     intent.warmup()
     print(f"warmup done in {time.time() - warmup_start:.1f}s")
 
@@ -206,6 +233,7 @@ def main() -> None:
         turn_log = run_call(
             ep, call, turns_def, args.lang, lang_meta, args.tts, condition,
             scratch_dir, max_turn_listen_s=args.max_listen_s, asr_model=args.asr_model,
+            asr_backend=args.asr_backend,
             tier3_threshold=args.tier3_threshold, silence_s=args.silence_s,
         )
 

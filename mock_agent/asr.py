@@ -54,7 +54,43 @@ def whisper_lang(bcp47: str) -> str:
     return bcp47.split("-")[0].lower()
 
 
-def transcribe(wav_path: str, language: str | None = None, model_name: str = "base") -> Transcript:
+def _transcribe_groq(wav_path: str, language: str | None) -> Transcript:
+    """Opt-in alternative to the local CPU model, same Transcript shape -
+    user's explicit choice (confirmed live on a real hi-IN clip: 0.95s vs
+    32-39s local, and an essentially exact transcript vs local "base"'s
+    garbled multi-script hallucination at confidence ~0.04-0.2). Pay-per-use
+    Groq-hosted whisper-large-v3 - the SAME model referee/groq_asr.py uses
+    for offline scoring, which is a deliberate, acknowledged departure from
+    CLAUDE.md's "in-loop and referee ASR must never share a model" (that
+    rule protects statistical independence in SCORED benchmark data; a mock-
+    agent dev call never produces scored data, so there is nothing to
+    contaminate here - but note this same `backend` flag also reaches the
+    CALLER's in-loop transcription of a REAL vendor's speech via
+    caller/call.py, where the rule's original rationale still applies).
+    Deferred import: referee.groq_asr imports whisper_lang from this module
+    at its own module scope, so importing it back at THIS module's top level
+    would be circular - fine once deferred to call time, since by then this
+    module has already finished loading.
+    """
+    from referee.groq_asr import transcribe_wav
+    # transcribe_wav's bcp47_lang param only ever feeds whisper_lang()
+    # internally (bcp47.split("-")[0]) - passing the already-reduced
+    # `language` code straight through is a no-op for that split, so no
+    # separate iso->bcp47 mapping is needed here.
+    t = transcribe_wav(wav_path, language or "en", response_format="verbose_json")
+    segs = t.segments or []
+    if not segs:
+        return Transcript(text=t.text, confidence=0.0 if not t.text else 0.5, avg_logprob=-999.0)
+    avg_logprob = sum(s["avg_logprob"] for s in segs) / len(segs)
+    confidence = max(0.0, min(1.0, math.exp(avg_logprob)))
+    return Transcript(text=t.text.strip(), confidence=confidence, avg_logprob=avg_logprob)
+
+
+def transcribe(wav_path: str, language: str | None = None, model_name: str = "base",
+               backend: str = "local") -> Transcript:
+    if backend == "groq":
+        return _transcribe_groq(wav_path, language)
+
     model = _get_model(model_name)
     try:
         segments, _info = model.transcribe(wav_path, language=language)
