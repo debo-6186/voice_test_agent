@@ -39,7 +39,14 @@ HI_IN_MONTH_ALT_SPELLINGS: dict[int, list[str]] = {
     # are likely still out there for months not yet seen enough times").
     # "अक्तूबर" - a FIFTH spelling (त vs ट - dental vs retroflex), same
     # ElevenLabs batch, same reasoning as उक्टूबर above.
-    10: ["अक्टोबर", "ऑक्टोबर", "उक्टूबर", "अक्तूबर"],
+    # "अक्तुबर" - a SIXTH spelling, confirmed live on an ElevenLabs retry:
+    # short उ vs अक्तूबर's long ू - the exact same vowel-length variation
+    # already seen on "शुन्य" vs "शून्य" (referee/entities.py) and तारीक
+    # vs तरीक (caller/intent.py). At six variants for one word, this is
+    # clearly this project's single most unstable Hindi spelling - treat
+    # any future October-field miss as "check for a new vowel-length or
+    # consonant variant first" before assuming anything else is wrong.
+    10: ["अक्टोबर", "ऑक्टोबर", "उक्टूबर", "अक्तूबर", "अक्तुबर"],
 }
 
 
