@@ -146,6 +146,23 @@ def retell_update_agent(agent_id: str, fields: dict) -> dict:
     return patch_json(url, fields, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
 
 
+def retell_get_llm(llm_id: str) -> dict:
+    vcfg = load_vendor_config("retell")
+    api_key = _env(vcfg["auth"]["api_key_env"])
+    url = vcfg["create"]["llm_get_endpoint"].format(llm_id=llm_id)
+    return get_json(url, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
+
+
+def retell_update_llm(llm_id: str, fields: dict) -> dict:
+    """Partial update of the SEPARATE Retell LLM resource (general_prompt
+    lives here, not on the agent) - PATCH confirmed live on
+    llm_update_endpoint."""
+    vcfg = load_vendor_config("retell")
+    api_key = _env(vcfg["auth"]["api_key_env"])
+    url = vcfg["create"]["llm_update_endpoint"].format(llm_id=llm_id)
+    return patch_json(url, fields, {"Authorization": f"Bearer {api_key}"}, error_cls=VendorCreateError)
+
+
 def retell_delete_agent(agent_id: str, *, llm_id: str | None = None) -> None:
     vcfg = load_vendor_config("retell")
     api_key = _env(vcfg["auth"]["api_key_env"])
@@ -347,13 +364,6 @@ def telnyx_delete_agent(agent_id: str) -> None:
 # fixes the root cause rather than papering over one call at a time.
 # --------------------------------------------------------------------------
 
-_LANGUAGE_UPDATE_FIELDS = {
-    "retell": lambda code: {"language": code},
-}
-_LANGUAGE_UPDATERS = {
-    "retell": retell_update_agent,
-}
-
 # Plain ISO-639-1 -> English name, for writing the language-override
 # directive's prose text (see _with_language_override below) - vendor-
 # agnostic, unlike telnyx.yaml's language_boost_names, which records a
@@ -366,7 +376,13 @@ _LANGUAGE_NAMES = {"en": "English", "hi": "Hindi", "es": "Spanish", "id": "Indon
 
 
 def _language_name(vendor_code: str) -> str:
-    name = _LANGUAGE_NAMES.get(vendor_code)
+    # Normalizes a hyphenated code (Retell's own vendor_code is full BCP-47,
+    # e.g. "hi-IN" - confirmed live via vendors/retell.yaml's languages
+    # table - unlike Telnyx/ElevenLabs, which use bare ISO-639-1) down to
+    # its base language before lookup, so one table serves every vendor's
+    # own code style.
+    base_code = vendor_code.split("-")[0].lower()
+    name = _LANGUAGE_NAMES.get(base_code)
     if name is None:
         raise VendorCreateError(
             f"no language name known for code {vendor_code!r} - add one to _LANGUAGE_NAMES"
@@ -497,6 +513,36 @@ def _elevenlabs_language_fields(bcp47_lang: str, agent_id: str, vendor_code: str
     }
 
 
+def _retell_language_fields(agent_id: str, vendor_code: str) -> dict:
+    """Same gap as Telnyx/ElevenLabs, confirmed live (2026-10-24) the same
+    way: the live test agent's own `language` field was the only thing the
+    original fix pushed, but general_prompt - the LLM's actual system
+    prompt - lives on a SEPARATE "Retell LLM" resource entirely (fetched via
+    the agent's response_engine.llm_id) and was found still plain English
+    with no language directive at all. Unlike Telnyx/ElevenLabs, this can't
+    be folded into one PATCH payload - the agent and its LLM are two
+    different resources behind two different update endpoints - so this
+    function does the LLM-resource PATCH itself as a side effect and
+    returns only the AGENT fields, which set_agent_language() below still
+    passes through retell_update_agent() same as before.
+
+    voice_id is NOT touched here, same scope decision as Telnyx: no
+    per-language override exists in vendors/voices.yaml for retell (a
+    single voice_id for every language), and there's no live evidence yet
+    that this specific voice can't render Hindi - unlike ElevenLabs, where
+    config/utterances.yaml already had a real, separately-verified Hindi
+    voice for this project's own caller side to reuse."""
+    agent = retell_get_agent(agent_id)
+    llm_id = (agent.get("response_engine") or {}).get("llm_id")
+    if not llm_id:
+        raise VendorCreateError(f"retell agent {agent_id} has no response_engine.llm_id")
+    llm = retell_get_llm(llm_id)
+    name = _language_name(vendor_code)
+    new_prompt = _with_language_override(llm.get("general_prompt", ""), name)
+    retell_update_llm(llm_id, {"general_prompt": new_prompt})
+    return {"language": vendor_code}
+
+
 def default_agent_id(vendor: str) -> str:
     """The existing test agent/assistant each vendor's *.yaml dial config
     already points at - telnyx's lives directly in dial.assistant_id;
@@ -526,8 +572,13 @@ def set_agent_language(vendor: str, agent_id: str, bcp47_lang: str) -> dict:
         telnyx_update_agent(agent_id, _telnyx_language_fields(vcfg, agent_id, lang.vendor_code))
     elif vendor == "elevenlabs":
         elevenlabs_update_agent(agent_id, _elevenlabs_language_fields(bcp47_lang, agent_id, lang.vendor_code))
+    elif vendor == "retell":
+        # _retell_language_fields does the LLM-resource PATCH itself (a
+        # separate resource, separate endpoint - see its own docstring) and
+        # returns only the agent-resource fields for this call to push.
+        retell_update_agent(agent_id, _retell_language_fields(agent_id, lang.vendor_code))
     else:
-        _LANGUAGE_UPDATERS[vendor](agent_id, _LANGUAGE_UPDATE_FIELDS[vendor](lang.vendor_code))
+        raise VendorCreateError(f"set_agent_language has no implementation for vendor {vendor!r}")
     return lang.as_dict()
 
 

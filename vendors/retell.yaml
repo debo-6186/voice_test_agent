@@ -38,6 +38,16 @@ notes: >
 create:
   llm_endpoint: "https://api.retellai.com/create-retell-llm"
   llm_delete_endpoint: "https://api.retellai.com/delete-retell-llm/{llm_id}"
+  llm_get_endpoint: "https://api.retellai.com/get-retell-llm/{llm_id}"
+  # CONFIRMED LIVE (2026-10-24): PATCH on this URL round-trips general_prompt
+  # correctly - needed because, same gap as Telnyx/ElevenLabs, the agent's
+  # own `language` field (below) only affects what the agent can be
+  # expected to speak/hear in a vendor-internal sense; it does NOT rewrite
+  # general_prompt, which lives on this SEPARATE "Retell LLM" resource and
+  # was found still plain English with no language directive at all on the
+  # live test agent. See vendors/create.py's set_agent_language() for the
+  # same fix already applied to Telnyx/ElevenLabs.
+  llm_update_endpoint: "https://api.retellai.com/update-retell-llm/{llm_id}"
   endpoint: "https://api.retellai.com/create-agent"
   get_endpoint: "https://api.retellai.com/get-agent/{agent_id}"
   # A SEPARATE endpoint from get_endpoint - unlike Telnyx/ElevenLabs, Retell's
