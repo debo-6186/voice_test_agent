@@ -87,3 +87,29 @@ create:
                                       # is omitted
     id_ID_model: null   # which (if any) of the other 13 transcription.model
                         # options supports Indonesian - not probed yet
+
+  # voice_settings.language_boost - CONFIRMED LIVE (2026-10-22) this is a
+  # SEPARATE field from transcription.language, and matters a lot more than
+  # its name suggests: the live test assistant was found with
+  # transcription.language correctly set to "hi" (an earlier fix, see
+  # vendors/create.py's set_agent_language() docstring) but language_boost
+  # still stuck on its creation-time default "English" - which actively
+  # biases the TTS's pronunciation/decoding toward English regardless of
+  # what script the LLM's response text is in. Confirmed on a real hi-IN
+  # call this combination (STT correctly set, TTS boost left on English)
+  # produced heavy English/Hindi code-switching that our own forced-Hindi
+  # ASR then transliterated into unmatchable phonetic Devanagari
+  # ("पॉन नंबर टू रीच यू आट" for "phone number to reach you at"), silently
+  # routing a perfectly normal, correctly-understood-by-a-human question to
+  # the adaptive LLM fallback. Values are full capitalized English language
+  # names, not ISO codes - "Hindi" and "Spanish" both round-tripped via a
+  # free PATCH+GET verification call, no live phone call involved. Also
+  # confirmed live: the PATCH endpoint requires voice_settings.voice to be
+  # present alongside language_boost (a general "resending this nested
+  # object requires its own required field" rule, not a "send everything or
+  # nothing" rule - every other voice_settings field not included in the
+  # PATCH body round-tripped untouched).
+  language_boost_names:
+    en: "English"
+    hi: "Hindi"
+    es: "Spanish"

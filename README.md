@@ -111,6 +111,47 @@ to conservative values, and `--yes` must be explicit in CI. See
 `docs/responsible-use.md` — also for vendor terms of service, right of reply before
 publishing comparisons, and why you should not point this at someone else's agent.
 
+## Running a real test today
+
+The `polycall` CLI above is the project's target shape - not built yet (see
+`docs/cli.md`'s own note that it's aspirational). Every capability that exists today
+is a standalone script under `scripts/`, run inside the `polycall-bench` Docker image
+(PJSIP is only prebuilt there). Concretely, for Telnyx in Hindi:
+
+```bash
+# 1. One-time: build the degraded-audio session corpus for this (language, scenario)
+#    pair, if out/sessions/sessions/hi-IN/S3_name_phone_date/ doesn't exist yet.
+python scripts/build_session_corpus.py --languages hi-IN --scenarios S3_name_phone_date
+
+# 2. Place the calls - all 15 conditions, one vendor, one language, one scenario.
+#    This dials a real vendor and costs real money - see docs/responsible-use.md.
+scripts/run_pilot.sh --vendor telnyx --lang hi-IN --out-suffix my_run
+
+# 3. Score what came back. --log scopes scoring to exactly this run's calls
+#    (never the whole out/calls/ directory, which would also pull in every
+#    other call anyone has ever placed on this machine).
+docker run --rm -v "$PWD:/app" --env-file .env --entrypoint python3 \
+  polycall-bench:latest scripts/score_run.py \
+  --log out/caller_pilot_telnyx_hi_IN_my_run.jsonl --out out/scores_my_run
+```
+
+Step 3 prints per-call slot accuracy, repairs, silent errors, and the tier1/tier2/
+tier3/adaptive-fallback breakdown per call, plus an aggregate summary - see
+"What makes the numbers trustworthy" above for why that breakdown matters (the
+adaptive fallback plays freshly-synthesized audio, not the condition's real
+degraded recording, so a high adaptive rate means the test got quietly easier for
+that vendor on some turns).
+
+Swap `--vendor telnyx` for `--vendor retell` or `--vendor elevenlabs`, and `--lang
+hi-IN` for any of `en-US` / `en-SG` / `es-ES` / `id-ID`, once that language's session
+corpus is built. `scripts/run_pilot.sh` always runs the full 15-condition ladder in
+one shot; to retry a single condition, call `scripts/run_caller.py` directly with
+`--session-dir out/sessions/sessions/<lang>/<scenario>/<condition>` (see the script's
+own `--help` for every flag, including `--silence-s` and `--connect-timeout-s`,
+which `run_pilot.sh` overrides from their library defaults - confirmed live these
+values matter: too-short silence detection makes the caller interrupt the vendor
+mid-sentence, and Telnyx specifically needs more than the default connect timeout).
+
 ## Docs
 
 | | |

@@ -42,10 +42,22 @@ def _load_calls(log_path: str | None, calls_dir: str | None) -> dict[str, dict]:
     return calls
 
 
+DEFAULT_CALLS_DIR = os.path.join(REPO_ROOT, "out", "calls")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--log", default=None)
-    p.add_argument("--calls-dir", default=os.path.join(REPO_ROOT, "out", "calls"))
+    # No directory default here (confirmed live, repeatedly, this session: a
+    # non-None default meant passing --log ALONE still glob-loaded every
+    # call under out/calls/*/call_log.json into the same results dict,
+    # silently pulling in unrelated historical calls and polluting the
+    # aggregate summary - the fix each time was manually copying the
+    # intended calls into an isolated scratch directory first, which this
+    # default makes unnecessary). Audio lookup (below) still falls back to
+    # DEFAULT_CALLS_DIR per call even when this flag is omitted - only the
+    # GLOB step (which calls get included at all) stops defaulting to it.
+    p.add_argument("--calls-dir", default=None)
     p.add_argument("--out", default=os.path.join(REPO_ROOT, "out", "scores"))
     args = p.parse_args()
 
@@ -64,7 +76,7 @@ def main() -> None:
 
     with open(scores_jsonl_path, "w", encoding="utf-8") as scores_f:
         for call_id, call_log in calls.items():
-            call_dir = call_log.get("_call_dir") or os.path.join(args.calls_dir, call_id)
+            call_dir = call_log.get("_call_dir") or os.path.join(args.calls_dir or DEFAULT_CALLS_DIR, call_id)
             if not os.path.isdir(call_dir):
                 print(f"skipping {call_id}: no audio directory at {call_dir}", file=sys.stderr)
                 continue
