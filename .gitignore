@@ -13,3 +13,4 @@ corpus/
 .ruff_cache/
 node_modules/
 notes/
+.docker-home/
