@@ -11,8 +11,15 @@ Tier 3: escalation only - see caller/adaptive.py for the LLM call itself.
 """
 from __future__ import annotations
 
+import os
 import re
+import time
 from dataclasses import dataclass
+
+# Set to a local checkpoint dir (e.g. out/laya_finetune/checkpoint) to use a
+# fine-tuned model instead of the stock hub checkpoint. Unset by default so
+# nothing changes unless a run opts in explicitly.
+LAYA_MODEL_PATH_ENV = "LAYA_MODEL_PATH"
 
 INTENTS = ["ask_name", "ask_phone", "ask_date", "confirm", "repair", "closing", "check_in"]
 
@@ -141,11 +148,18 @@ _laya_agent = None
 
 def _get_laya():
     """Loaded once, lazily, at module scope - same pattern as
-    mock_agent/asr.py's whisper model (never per-call)."""
+    mock_agent/asr.py's whisper model (never per-call). Loads the fine-tuned
+    checkpoint from LAYA_MODEL_PATH when set (e.g.
+    out/laya_finetune/checkpoint - see scripts/compare_laya_checkpoints.py),
+    otherwise the stock multilingual hub checkpoint."""
     global _laya_agent
     if _laya_agent is None:
         import laya
-        _laya_agent = laya.load("convaiinnovations/laya", subfolder="multilingual")
+        model_path = os.environ.get(LAYA_MODEL_PATH_ENV)
+        if model_path:
+            _laya_agent = laya.load(model_path)
+        else:
+            _laya_agent = laya.load("convaiinnovations/laya", subfolder="multilingual")
     return _laya_agent
 
 
@@ -242,6 +256,9 @@ class Classification:
     confidence: float
     tier: int              # 1, 2, or 3 - the divergence metric (docs/stack.md)
     needs_adaptive: bool    # True -> caller/adaptive.py must generate a reply
+    laya_latency_ms: float | None = None   # wall-clock cost of the Laya
+                                            # predict() call itself - None for
+                                            # tier 1, which never calls Laya.
 
 
 _TOO_SHORT_TO_CLASSIFY_CHARS = 8
@@ -267,7 +284,11 @@ def classify(text: str, tier3_threshold: float = 0.75) -> Classification:
     # genuine short utterance tier 1 already catches above (e.g. "hello?").
     if len(text.strip()) < _TOO_SHORT_TO_CLASSIFY_CHARS:
         return Classification("repair", 1.0, tier=1, needs_adaptive=False)
+    t0 = time.perf_counter()
     intent, confidence = tier2_classify(text)
+    laya_latency_ms = (time.perf_counter() - t0) * 1000
     if confidence < tier3_threshold:
-        return Classification(intent, confidence, tier=3, needs_adaptive=True)
-    return Classification(intent, confidence, tier=2, needs_adaptive=False)
+        return Classification(intent, confidence, tier=3, needs_adaptive=True,
+                              laya_latency_ms=laya_latency_ms)
+    return Classification(intent, confidence, tier=2, needs_adaptive=False,
+                          laya_latency_ms=laya_latency_ms)

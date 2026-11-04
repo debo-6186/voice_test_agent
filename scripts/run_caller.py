@@ -128,9 +128,10 @@ def main() -> None:
     p.add_argument("--save-vendor-recording", action="store_true",
                    help="also fetch and save the VENDOR's own call recording "
                         "(separate from the agent audio we always record on our "
-                        "own leg for scoring) into the call's out/calls/<call_id>/ "
-                        "directory, as vendor_recording.{wav,mp3}. Opt-in: an extra "
-                        "vendor API round trip per call, only implemented for "
+                        "own leg for scoring) into the call's "
+                        "out/<vendor>_<lang>_calls/<call_id>/ directory, as "
+                        "vendor_recording.{wav,mp3}. Opt-in: an extra vendor API "
+                        "round trip per call, only implemented for "
                         "retell/elevenlabs/telnyx (vendors/recordings.py) - a "
                         "best-effort archival copy, not required for scoring.")
     args = p.parse_args()
@@ -229,7 +230,10 @@ def main() -> None:
             sys.exit("call did not reach media-active state")
         print("call connected, media active")
 
-        scratch_dir = os.path.join(REPO_ROOT, "out", "calls", call_id)
+        # out/<vendor>_<lang>_calls/ rather than a single flat out/calls/ -
+        # keeps a multi-vendor, multi-language run browsable and scoped.
+        vendor_label = args.vendor or "direct_uri"
+        scratch_dir = os.path.join(REPO_ROOT, "out", f"{vendor_label}_{args.lang}_calls", call_id)
         turn_log = run_call(
             ep, call, turns_def, args.lang, lang_meta, args.tts, condition,
             scratch_dir, max_turn_listen_s=args.max_listen_s, asr_model=args.asr_model,
@@ -246,6 +250,10 @@ def main() -> None:
             "call_id": call_id, "scenario": args.scenario, "lang": args.lang,
             "vendor": args.vendor or "direct_uri", "tts": args.tts, "condition": condition,
             "duration_s": round(time.time() - call_start, 2), "turns": turn_log,
+            # self-describing per CLAUDE.md's manifest-row convention - lets
+            # score_run.py find this call's audio from --log alone, without
+            # guessing which out/<vendor>_<lang>_calls/ directory it's in.
+            "_call_dir": scratch_dir,
         }
         if vendor_language:
             log_row["vendor_language"] = vendor_language
@@ -272,7 +280,7 @@ def main() -> None:
         # Written both ways: a self-contained copy next to this call's own
         # audio (survives even if --log is omitted or paths diverge later),
         # and appended to the shared --log for cheap cross-call aggregation
-        # without globbing every out/calls/* directory.
+        # without globbing every out/<vendor>_<lang>_calls/* directory.
         with open(os.path.join(scratch_dir, "call_log.json"), "w", encoding="utf-8") as f:
             json.dump(log_row, f, ensure_ascii=False, indent=2)
         if args.log:

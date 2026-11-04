@@ -120,6 +120,7 @@ def _react(agent_text: str, i: int, state: CallerState, lang: str, lang_meta: di
     row = {
         "i": i, "agent_text": agent_text, "intent": cls.intent,
         "confidence": round(cls.confidence, 3), "tier": cls.tier,
+        "laya_latency_ms": round(cls.laya_latency_ms, 1) if cls.laya_latency_ms is not None else None,
         "action": action.kind, "divergence": action.divergence,
         "divergence_reason": action.divergence_reason,
     }

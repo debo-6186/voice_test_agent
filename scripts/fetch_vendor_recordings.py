@@ -7,7 +7,8 @@ run_caller.py should ever block a sequential run waiting on it. This script
 is the decoupled "try again later, with a bigger budget" half - run it
 anytime after the fact (minutes or days later), not from inside a call.
 
-python scripts/fetch_vendor_recordings.py --calls-dir out/calls
+python scripts/fetch_vendor_recordings.py --calls-dir out/telnyx_hi-IN_calls
+python scripts/fetch_vendor_recordings.py   # no --calls-dir: scans every out/*_calls/ directory
 """
 from __future__ import annotations
 
@@ -25,7 +26,9 @@ from vendors.recordings import save_vendor_recording  # noqa: E402
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--calls-dir", default=os.path.join(REPO_ROOT, "out", "calls"))
+    p.add_argument("--calls-dir", default=None,
+                   help="a single out/<vendor>_<lang>_calls/ directory to scope to; "
+                        "omit to scan every such directory under out/")
     p.add_argument("--max-wait-s", type=float, default=120.0,
                    help="budget per call - bigger than run_caller.py's inline "
                         "attempt, since this runs decoupled from any live call")
@@ -34,8 +37,13 @@ def main() -> None:
                    help="retry even calls already marked saved:true")
     args = p.parse_args()
 
+    if args.calls_dir:
+        pattern = os.path.join(args.calls_dir, "*", "call_log.json")
+    else:
+        pattern = os.path.join(REPO_ROOT, "out", "*_calls", "*", "call_log.json")
+
     n_tried = n_saved = n_skipped_unsupported = n_already_saved = 0
-    for call_log_path in sorted(glob.glob(os.path.join(args.calls_dir, "*", "call_log.json"))):
+    for call_log_path in sorted(glob.glob(pattern)):
         call_dir = os.path.dirname(call_log_path)
         with open(call_log_path, encoding="utf-8") as f:
             call_log = json.load(f)

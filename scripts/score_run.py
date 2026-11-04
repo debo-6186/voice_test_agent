@@ -5,7 +5,7 @@ line - no polycall console command exists yet, every capability today is a
 standalone scripts/*.py (matching scripts/run_caller.py's own precedent).
 
 python scripts/score_run.py --log out/caller_run.jsonl --out out/scores
-python scripts/score_run.py --calls-dir out/calls --out out/scores
+python scripts/score_run.py --calls-dir out/telnyx_hi-IN_calls --out out/scores
 """
 from __future__ import annotations
 
@@ -50,13 +50,14 @@ def main() -> None:
     p.add_argument("--log", default=None)
     # No directory default here (confirmed live, repeatedly, this session: a
     # non-None default meant passing --log ALONE still glob-loaded every
-    # call under out/calls/*/call_log.json into the same results dict,
-    # silently pulling in unrelated historical calls and polluting the
-    # aggregate summary - the fix each time was manually copying the
-    # intended calls into an isolated scratch directory first, which this
-    # default makes unnecessary). Audio lookup (below) still falls back to
-    # DEFAULT_CALLS_DIR per call even when this flag is omitted - only the
-    # GLOB step (which calls get included at all) stops defaulting to it.
+    # call under out/<vendor>_<lang>_calls/*/call_log.json into the same
+    # results dict, silently pulling in unrelated historical calls and
+    # polluting the aggregate summary - the fix each time was manually
+    # copying the intended calls into an isolated scratch directory first,
+    # which this default makes unnecessary). Audio lookup (below) normally
+    # comes from each row's own self-describing "_call_dir" (written by
+    # run_caller.py) and only falls back to DEFAULT_CALLS_DIR for an older
+    # log row that predates that field.
     p.add_argument("--calls-dir", default=None)
     p.add_argument("--out", default=os.path.join(REPO_ROOT, "out", "scores"))
     args = p.parse_args()
@@ -125,6 +126,24 @@ def main() -> None:
         n_tier3 = sum(r["n_tier3"] for r in rows)
         n_adaptive = sum(r["n_adaptive_action"] for r in rows)
         n_turns_classified = n_tier1 + n_tier2 + n_tier3
+
+        # Laya predict() latency by the intent it returned, pooled across
+        # every call in this language (tier 1 never calls Laya - see
+        # referee/score.py's score_call()).
+        latencies_by_intent = defaultdict(list)
+        for r in rows:
+            for intent, latencies in r["laya_latency_ms_by_intent"].items():
+                latencies_by_intent[intent].extend(latencies)
+        laya_latency_ms_by_intent = {
+            intent: {
+                "n": len(latencies),
+                "mean_ms": round(sum(latencies) / len(latencies), 1),
+                "min_ms": round(min(latencies), 1),
+                "max_ms": round(max(latencies), 1),
+            }
+            for intent, latencies in latencies_by_intent.items()
+        }
+
         summary[lang] = {
             "n_calls": n,
             "task_success_rate": sum(r["task_success"] for r in rows) / n,
@@ -139,6 +158,7 @@ def main() -> None:
             "tier2_fraction": n_tier2 / n_turns_classified if n_turns_classified else 0.0,
             "tier3_fraction": n_tier3 / n_turns_classified if n_turns_classified else 0.0,
             "adaptive_fraction_of_turns": n_adaptive / n_turns_classified if n_turns_classified else 0.0,
+            "laya_latency_ms_by_intent": laya_latency_ms_by_intent,
         }
 
     with open(os.path.join(args.out, "summary.json"), "w", encoding="utf-8") as f:
@@ -154,6 +174,11 @@ def main() -> None:
              f"tier2={s['n_tier2']} ({s['tier2_fraction']:.0%}), "
              f"tier3={s['n_tier3']} ({s['tier3_fraction']:.0%}), "
              f"adaptive={s['n_adaptive_action']} ({s['adaptive_fraction_of_turns']:.0%} of turns)")
+        if s["laya_latency_ms_by_intent"]:
+            print("  Laya predict() latency by intent:")
+            for intent, lat in sorted(s["laya_latency_ms_by_intent"].items()):
+                print(f"    {intent:12s} n={lat['n']:<4d} mean={lat['mean_ms']:.1f}ms "
+                     f"min={lat['min_ms']:.1f}ms max={lat['max_ms']:.1f}ms")
 
 
 if __name__ == "__main__":
