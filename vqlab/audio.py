@@ -263,6 +263,43 @@ def speech_mask(x: np.ndarray, sr: int, frame_ms: float = 20.0,
     return mask
 
 
+def speech_regions(x: np.ndarray, sr: int, frame_ms: float = 20.0, rel_db: float = -35.0,
+                   min_gap_s: float = 0.6, pad_s: float = 0.3) -> list[tuple[float, float]]:
+    """speech_mask() reduced to a list of (start_s, end_s) speech-active
+    regions, for chunking a long recording into per-utterance pieces before
+    ASR (referee/score.py's transcribe_call() - Whisper is known to drop
+    content on long continuous audio with interleaved silence/turn-taking
+    even when the same content transcribes fine as a short isolated clip).
+    Two adjacent raw regions separated by less than min_gap_s of silence are
+    merged into one, so a brief mid-sentence pause doesn't fragment one
+    utterance into several context-starved chunks. Each final region is
+    padded by pad_s on both sides (clipped to the signal's own bounds) so an
+    onset/offset consonant never gets hard-cut. Falls back to the whole
+    signal as a single region when no speech is detected at all, rather
+    than returning nothing to chunk."""
+    if len(x) == 0:
+        return []
+    mask = speech_mask(x, sr, frame_ms=frame_ms, rel_db=rel_db)
+    padded = np.concatenate([[False], mask, [False]])
+    diff = np.diff(padded.astype(np.int8))
+    starts = np.flatnonzero(diff == 1)
+    ends = np.flatnonzero(diff == -1)
+    if len(starts) == 0:
+        return [(0.0, len(x) / sr)]
+
+    min_gap_samples = int(min_gap_s * sr)
+    merged: list[list[int]] = []
+    for start, end in zip(starts.tolist(), ends.tolist()):
+        if merged and start - merged[-1][1] < min_gap_samples:
+            merged[-1][1] = end
+        else:
+            merged.append([start, end])
+
+    pad_samples = int(pad_s * sr)
+    n = len(x)
+    return [(max(0, s - pad_samples) / sr, min(n, e + pad_samples) / sr) for s, e in merged]
+
+
 def speech_rms(x: np.ndarray, sr: int) -> float:
     m = speech_mask(x, sr)
     seg = x[m] if np.any(m) else x

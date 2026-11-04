@@ -71,13 +71,23 @@ def _transcribe_groq(wav_path: str, language: str | None) -> Transcript:
     at its own module scope, so importing it back at THIS module's top level
     would be circular - fine once deferred to call time, since by then this
     module has already finished loading.
+
+    Uses transcribe_wav_chunked(), not transcribe_wav() - confirmed live
+    (Telnyx id-ID) that the SAME long-silence-collapses-to-a-hallucinated-
+    fragment failure referee/score.py already works around on the
+    multi-minute `_full_call.wav` also hits a single per-turn clip: an
+    18s turn-0 recording with ~9.6s of the vendor's own response latency
+    before it started talking came back as just "Terima kasih." unchunked,
+    and transcribed correctly in full ("Halo, Budi Santoso... Bisa saya
+    dapatkan nomor telepon yang bisa dihubungi?") once VAD-isolated to its
+    real ~8s speech region.
     """
-    from referee.groq_asr import transcribe_wav
-    # transcribe_wav's bcp47_lang param only ever feeds whisper_lang()
-    # internally (bcp47.split("-")[0]) - passing the already-reduced
-    # `language` code straight through is a no-op for that split, so no
-    # separate iso->bcp47 mapping is needed here.
-    t = transcribe_wav(wav_path, language or "en", response_format="verbose_json")
+    from referee.groq_asr import transcribe_wav_chunked
+    # bcp47_lang param only ever feeds whisper_lang() internally
+    # (bcp47.split("-")[0]) - passing the already-reduced `language` code
+    # straight through is a no-op for that split, so no separate
+    # iso->bcp47 mapping is needed here.
+    t = transcribe_wav_chunked(wav_path, language or "en")
     segs = t.segments or []
     if not segs:
         return Transcript(text=t.text, confidence=0.0 if not t.text else 0.5, avg_logprob=-999.0)

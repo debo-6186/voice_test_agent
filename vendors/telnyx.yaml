@@ -69,24 +69,28 @@ create:
   # That same list also CONFIRMS id-ID (Indonesian) is simply absent from
   # deepgram/flux's supported languages - not merely undocumented as
   # previously noted, genuinely unsupported by this transcription model.
-  # A different transcription.model (among Telnyx's 14 options, per
-  # docs/vendors.md) might support it - not probed yet, left as a fallback
-  # gap rather than guessed.
+  # CONFIRMED LIVE (2026-11-04): transcription.id_ID_model below (deepgram/
+  # nova-2) does NOT get the same 400 - a PATCH with model=deepgram/nova-2 +
+  # language=id was accepted outright. Config-level acceptance only; not yet
+  # verified against a real phone call (Telnyx may not validate a community/
+  # non-default model's language support at all, deferring to the model
+  # itself at call time) - treat as a promising candidate, re-confirm after
+  # the first real id-ID call.
   languages:
     en-US: {code: "en"}
     en-SG: {code: null, fallback: ["en-US"]}
     hi-IN: {code: "hi"}
     es-ES: {code: "es"}
-    id-ID: {code: null, fallback: []}   # genuinely unsupported by
-                                        # deepgram/flux - see comment above
+    id-ID: {code: "id"}   # needs transcription.id_ID_model below, NOT the
+                          # default_model (deepgram/flux), which 400s on id
   transcription:
     model_field_path: "transcription.model"
     language_field_path: "transcription.language"
     default_model: "deepgram/flux"   # confirmed live as the create endpoint's
                                       # own default when transcription.model
                                       # is omitted
-    id_ID_model: null   # which (if any) of the other 13 transcription.model
-                        # options supports Indonesian - not probed yet
+    id_ID_model: "deepgram/nova-2"   # CONFIRMED LIVE (2026-11-04) accepted
+                                     # for id - see comment above languages:
 
   # voice_settings.language_boost - CONFIRMED LIVE (2026-10-22) this is a
   # SEPARATE field from transcription.language, and matters a lot more than
@@ -113,3 +117,5 @@ create:
     en: "English"
     hi: "Hindi"
     es: "Spanish"
+    id: "Indonesian"   # confirmed live (2026-11-04) via free PATCH+GET,
+                       # same method as the other three entries above
