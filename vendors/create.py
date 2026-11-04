@@ -454,7 +454,16 @@ def _telnyx_language_fields(vcfg: dict, agent_id: str, vendor_code: str) -> dict
     same call (confirmed live: omitting it 400s with "Missing required
     parameter" on /body/voice_settings/voice, even though every other
     voice_settings field not sent round-trips untouched), and overwriting
-    instructions wholesale would destroy the actual scenario prompt."""
+    instructions wholesale would destroy the actual scenario prompt.
+
+    Also swaps transcription.model for vendors/telnyx.yaml's id_ID_model
+    when resolving to "id" - the create endpoint's default_model
+    (deepgram/flux) 400s outright on Indonesian (CONFIRMED LIVE), so id-ID
+    needs a different transcription model, not just a different language
+    code. Every other language keeps the account's existing model
+    untouched (no "model" key sent) rather than forcing default_model back
+    onto an assistant that may have been intentionally configured
+    otherwise."""
     boost_names = (vcfg.get("create") or {}).get("language_boost_names", {})
     boost_name = boost_names.get(vendor_code)
     if boost_name is None:
@@ -467,8 +476,14 @@ def _telnyx_language_fields(vcfg: dict, agent_id: str, vendor_code: str) -> dict
     current_voice = (current.get("voice_settings") or {}).get("voice")
     if not current_voice:
         raise VendorCreateError(f"telnyx agent {agent_id} has no voice_settings.voice to preserve")
+
+    transcription = {"language": vendor_code}
+    tcfg = (vcfg.get("create") or {}).get("transcription", {})
+    if vendor_code == "id" and tcfg.get("id_ID_model"):
+        transcription["model"] = tcfg["id_ID_model"]
+
     return {
-        "transcription": {"language": vendor_code},
+        "transcription": transcription,
         "voice_settings": {"voice": current_voice, "language_boost": boost_name},
         "instructions": _with_language_override(current.get("instructions", ""), boost_name),
     }

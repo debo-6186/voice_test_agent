@@ -6,9 +6,10 @@ worked-example shape - "1/3 slots, 11 turns, 74s, 3 repairs, 1 silent error."
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 
 from referee.entities import EntityMatch, find_entity_match_in_segments
-from referee.groq_asr import transcribe_wav
+from referee.groq_asr import transcribe_wav_chunked
 
 
 def transcribe_call(call_dir: str, lang: str) -> list[dict] | None:
@@ -17,14 +18,20 @@ def transcribe_call(call_dir: str, lang: str) -> list[dict] | None:
     not the per-turn files, which end wherever our own live
     silence-detection heuristic decided a turn was over, not wherever the
     agent actually stopped talking (confirmed live losing real agent
-    speech this way). Returns Groq's verbose_json segments
+    speech this way). transcribe_wav_chunked() VAD-chunks before sending to
+    Whisper - see its own docstring for why (a real closing-turn sentence
+    confirming the date came back from the unchunked whole-file
+    transcription as just "Pak Budi?" / "Terima kasih.", losing the date
+    entirely - the same sentence, chunked, transcribed in full).
+
+    Returns the merged, absolute-timestamped segments
     ([{start, end, text}, ...]), or None if this call predates the
     continuous recorder and has no `_full_call.wav` to score from."""
     wav_path = os.path.join(call_dir, "_full_call.wav")
     if not os.path.exists(wav_path):
         return None
     cache_path = os.path.join(call_dir, "_referee_full_call.json")
-    transcript = transcribe_wav(wav_path, lang, cache_path=cache_path)
+    transcript = transcribe_wav_chunked(wav_path, lang, cache_path=cache_path)
     return transcript.segments or []
 
 
@@ -163,6 +170,14 @@ def score_call(call_log: dict, scenario_turns: list[dict], segments: list[dict] 
     n_tier3 = sum(1 for row in turn_log if row.get("tier") == 3)
     n_adaptive_action = sum(1 for row in turn_log if row.get("action") == "play_adaptive")
 
+    # Laya predict() latency, grouped by the intent it returned - only tier
+    # 2/3 rows ever call Laya at all (tier 1 is free regex, see
+    # caller/intent.py's classify()), so tier 1 rows never contribute here.
+    laya_latency_ms_by_intent: dict[str, list[float]] = defaultdict(list)
+    for row in turn_log:
+        if row.get("tier") in (2, 3) and row.get("laya_latency_ms") is not None:
+            laya_latency_ms_by_intent[row["intent"]].append(row["laya_latency_ms"])
+
     return {
         "call_id": call_log["call_id"], "scenario": call_log["scenario"], "lang": lang,
         "vendor": call_log.get("vendor"), "referee_model": "whisper-large-v3-groq",
@@ -174,4 +189,5 @@ def score_call(call_log: dict, scenario_turns: list[dict], segments: list[dict] 
         "n_repairs": n_repairs, "n_silent_errors": n_silent_errors,
         "n_tier1": n_tier1, "n_tier2": n_tier2, "n_tier3": n_tier3,
         "n_adaptive_action": n_adaptive_action,
+        "laya_latency_ms_by_intent": dict(laya_latency_ms_by_intent),
     }

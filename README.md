@@ -103,6 +103,25 @@ The Docker image exists because live calling needs a custom PJSIP build. If you 
 want to generate degraded audio, pip is enough. A GPU is optional — `--device cpu`
 works at reduced concurrency; see `docs/stack.md`.
 
+## The EC2 box - stop it when you're not using it
+
+Live SIP calling (`run_pilot.sh` / `run_caller.py`) runs against a dedicated
+AWS EC2 box, not your laptop. It bills by the hour whether or not a call is in
+flight, so shut it down between test sessions:
+
+```bash
+scripts/aws_server.sh stop     # at the end of a session - stops the compute bill
+scripts/aws_server.sh start    # before your next test run
+scripts/aws_server.sh status   # check whether it's running right now
+```
+
+It holds an Elastic IP, so stopping and starting it does not change its
+public address - safe even where a vendor trunk allowlists this box's IP.
+Stopping it pauses compute billing only; the attached EBS volume and the
+Elastic IP itself are billed as long as they exist, running or not. Requires
+the AWS CLI configured with credentials that can start/stop EC2 instances in
+`us-east-1`.
+
 ## Costs, and the guard rails
 
 `polycall bench --all` could spend thousands of dollars. It will not let you:
@@ -128,8 +147,8 @@ python scripts/build_session_corpus.py --languages hi-IN --scenarios S3_name_pho
 scripts/run_pilot.sh --vendor telnyx --lang hi-IN --out-suffix my_run
 
 # 3. Score what came back. --log scopes scoring to exactly this run's calls
-#    (never the whole out/calls/ directory, which would also pull in every
-#    other call anyone has ever placed on this machine).
+#    (never the whole out/telnyx_hi-IN_calls/ directory, which would also
+#    pull in every other call anyone has ever placed on this machine).
 docker run --rm -v "$PWD:/app" --env-file .env --entrypoint python3 \
   polycall-bench:latest scripts/score_run.py \
   --log out/caller_pilot_telnyx_hi_IN_my_run.jsonl --out out/scores_my_run
@@ -164,6 +183,7 @@ mid-sentence, and Telnyx specifically needs more than the default connect timeou
 | `docs/referees.md` | Per-language ASR, normalisation, the truncation rule |
 | `docs/statistics.md` | pass^k, paired design, bootstrap, threshold fitting |
 | `docs/responsible-use.md` | ToS, cost guards, publication ethics |
+| `scripts/aws_server.sh` | Start/stop the EC2 box used for live SIP calling |
 | `CONTRIBUTING.md` | Including how to add a vendor |
 
 ## Licence

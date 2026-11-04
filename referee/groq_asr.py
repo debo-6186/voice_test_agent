@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 
 from mock_agent.asr import whisper_lang
 from vendors.http import VendorHTTPError, env, post_multipart
+from vqlab import audio as vqlab_audio
 
 GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 MODEL = "whisper-large-v3"
@@ -78,3 +80,56 @@ def transcribe_wav(wav_path: str, bcp47_lang: str, *,
 
     return RefereeTranscript(text=resp.get("text", ""), language=resp.get("language"),
                              words=resp.get("words"), segments=resp.get("segments"), raw=resp)
+
+
+def transcribe_wav_chunked(wav_path: str, bcp47_lang: str, *,
+                           cache_path: str | None = None) -> RefereeTranscript:
+    """Like transcribe_wav(), but VAD-chunks the audio via
+    vqlab.audio.speech_regions() first - one Groq call per speech region
+    instead of one call for the whole file. Confirmed live on id-ID, on
+    BOTH the referee's own multi-minute `_full_call.wav` scoring and the
+    caller's in-loop ASR on a single per-turn clip: a long stretch of
+    silence (interleaved pauses across a whole call, or just the vendor's
+    own several-second response latency before it starts talking on one
+    turn) makes Whisper silently collapse real speech into a short
+    hallucinated fragment. A real Telnyx turn - "Halo, Budi Santoso...
+    Bisa saya dapatkan nomor telepon yang bisa dihubungi?", ~8s of real
+    speech after ~9.6s of leading silence in an 18s clip - came back as
+    just "Terima kasih." unchunked, and transcribed correctly in full once
+    isolated to its own speech region. Returns the merged RefereeTranscript
+    - segments shifted back to absolute time within wav_path, text joined
+    with spaces - same shape as transcribe_wav(), so callers never need to
+    know chunking happened."""
+    if cache_path and os.path.exists(cache_path):
+        with open(cache_path, encoding="utf-8") as f:
+            raw = json.load(f)
+        return RefereeTranscript(text=raw.get("text", ""), language=raw.get("language"),
+                                 words=raw.get("words"), segments=raw.get("segments"), raw=raw)
+
+    audio = vqlab_audio.load(wav_path)
+    regions = vqlab_audio.speech_regions(audio.samples, audio.sr)
+
+    all_segments: list[dict] = []
+    text_parts: list[str] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, (start_s, end_s) in enumerate(regions):
+            start_i, end_i = int(start_s * audio.sr), int(end_s * audio.sr)
+            chunk = vqlab_audio.Audio(audio.samples[start_i:end_i], audio.sr)
+            chunk_path = os.path.join(tmpdir, f"chunk_{i}.wav")
+            vqlab_audio.write_wav(chunk_path, chunk)
+
+            t = transcribe_wav(chunk_path, bcp47_lang)
+            if t.text.strip():
+                text_parts.append(t.text.strip())
+            for seg in (t.segments or []):
+                all_segments.append({**seg, "start": seg["start"] + start_s, "end": seg["end"] + start_s})
+
+    all_segments.sort(key=lambda s: s["start"])
+    merged_text = " ".join(text_parts)
+    raw = {"text": merged_text, "segments": all_segments, "language": bcp47_lang,
+          "_chunked": True, "_n_chunks": len(regions)}
+    if cache_path:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(raw, f, ensure_ascii=False, indent=2)
+    return RefereeTranscript(text=merged_text, language=bcp47_lang, words=None,
+                             segments=all_segments, raw=raw)
